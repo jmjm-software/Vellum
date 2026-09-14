@@ -46,6 +46,11 @@ jobs:
 
       - name: Build debug APK + lint
         working-directory: android
+        env:
+          # AGP resolves the debug keystore under ANDROID_USER_HOME; the runner
+          # sets XDG_CONFIG_HOME, which maps it to a non-writable path. Pin it
+          # to a guaranteed-writable location so validateSigningDebug succeeds.
+          ANDROID_USER_HOME: "${{ runner.temp }}/.android"
         run: ./gradlew :app:assembleDebug :app:lintDebug --no-daemon
 
       - name: Upload APK artifact
