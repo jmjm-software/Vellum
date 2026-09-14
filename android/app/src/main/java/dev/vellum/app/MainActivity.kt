@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
+import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -72,24 +73,23 @@ class MainActivity : AppCompatActivity(), Bridge.Host {
 
     override fun onStart() {
         super.onStart()
-        monitor.start()
+        if (::monitor.isInitialized) monitor.start()
     }
 
     override fun onStop() {
         super.onStop()
-        monitor.stop()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        if (configured && (serverUrl != webView.url?.removeSuffix("/")?.removeSuffix("/index.html"))) {
-            // Settings changed in a previous run: reload target.
-        }
+        if (::monitor.isInitialized) monitor.stop()
     }
 
     override fun onDestroy() {
-        webView.removeJavascriptInterface("VellumBridge")
-        webView.destroy()
+        if (::webView.isInitialized) {
+            webView.removeJavascriptInterface("VellumBridge")
+            // Detach before destroy — destroying an attached WebView can itself
+            // throw. The not-configured path never creates webView, so guard.
+            val parent = webView.parent
+            if (parent is ViewGroup) parent.removeView(webView)
+            webView.destroy()
+        }
         super.onDestroy()
     }
 
