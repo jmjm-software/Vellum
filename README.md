@@ -1,5 +1,13 @@
 # Vellum
 
+> [!WARNING]
+> **Work in progress — experimental project.**
+> Vellum is a personal research experiment in agent-designed dashboards, built to test
+> whether an AI agent can responsibly own the presentation layer of a persistent personal
+> dashboard. It is **not production-ready**: expect breaking changes, incomplete docs and
+> rough edges. Do not deploy it with real credentials or sensitive data.
+> See [Status](#status) for what works today.
+
 An **agent-designed dashboard service**: one persistent service, one MCP connection, an
 agent-authored component layout, a shared web/Android renderer, data updates independent of
 design changes, and a guarded preview-to-publish workflow.
@@ -19,6 +27,22 @@ contracts.
 | `packages/preview-worker` | Playwright worker: screenshots, diagnostics, interaction tests |
 
 Android (Kotlin WebView shell + Glance widgets) is a later milestone — see `android/README.md`.
+
+## Status
+
+Work in progress. Implemented and covered by the e2e acceptance suite today:
+
+- Component catalogue + validated agent-authored design documents (drafts, reviews, publications)
+- Guarded preview-to-publish loop with Playwright screenshots and diagnostics
+- MCP stdio server (six tools), HTTP client API + SSE, token-separated auth
+- Shared React renderer (web + isolated preview surface), CLI, container image + CI
+
+Not started / planned (see `android/README.md` and `architecture.md`):
+
+- Android WebView shell and Glance launcher widgets (native widget preview path)
+- PostgreSQL backend (trigger: multi-replica or managed storage; see Database topology)
+- MCP Apps support, richer chart catalogue, full terminal TUI
+- Harness compatibility matrix (interactive vs continuous mode)
 
 ## Quick start
 
