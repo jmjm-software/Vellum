@@ -32,6 +32,25 @@ cd android
 ./gradlew lintDebug            # static analysis
 ```
 
+## CI (`android-apk` workflow)
+
+`.github/workflows/android.yml` builds the APK on GitHub Actions whenever `android/**`
+changes on `main` or in a PR, or on `workflow_dispatch`:
+
+- JDK 17 (temurin) + real Android SDK (`platforms;android-35`, `build-tools;35.0.0`)
+  via `android-actions/setup-android`; wrapper-pinned Gradle 8.10.2 with the Gradle cache
+- runs `:app:assembleDebug` + `:app:lintDebug`
+- uploads `vellum-apk-debug` (installable, debug-signed) and the lint report as artifacts
+  (14-day retention)
+- on tag push (`v*`): attaches the APK to the GitHub Release via `softprops/action-gh-release`
+
+The wrapper lives in the repo (`android/gradlew` + `android/gradle/wrapper`), so no
+Gradle install is needed on a fresh checkout.
+
+Release signing is deliberately out of scope for now: the pipeline emits the
+installable debug APK; a signed `assembleRelease` (with your own keystore as a
+GitHub secret) can be added when you intend to distribute outside sideloading.
+
 ## Manual test on a device/emulator
 
 1. Run a vellum server: `bash scripts/stack-up.sh /tmp/vellum-dev`

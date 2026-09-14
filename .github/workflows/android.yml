@@ -30,10 +30,16 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # Real Android toolchain: sdkmanager-installed platform + build tools.
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools,platforms;android-35,build-tools;35.0.0
+      # Real Android toolchain. The runner image already ships cmdline-tools;
+      # install the platform/build-tools directly (multi-arg, so sdkmanager
+      # resolves each package — comma-joined strings fail). Idempotent.
+      - name: Install Android SDK packages
+        run: |
+          SDK=/usr/local/lib/android/sdk
+          SDKM=$(find "$SDK/cmdline-tools" -name sdkmanager 2>/dev/null | head -1)
+          [ -n "$SDKM" ] || { echo "::error::sdkmanager not found"; exit 1; }
+          sudo sh -c "yes | '$SDKM' --licenses" >/dev/null 2>&1 || true
+          sudo sh -c "'$SDKM' 'platform-tools' 'platforms;android-35' 'build-tools;34.0.0' 'build-tools;35.0.0'"
 
       # Gradle wrapper + build cache (wrapper downloads the pinned 8.10.2).
       - uses: gradle/actions/setup-gradle@v4
