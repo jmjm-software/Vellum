@@ -132,9 +132,12 @@ in-process by the server and the preview worker. Consequences:
 ## CI
 
 `.github/workflows/container.yml` runs the e2e + MCP acceptance suites on every push/PR,
-then builds the image with buildx (GHA cache), pushes to `ghcr.io/<owner>/vellum` on
-`main`/tags (`latest`, branch, semver, and `sha-*` tags), and smoke-tests the pushed image
-by running the acceptance suite against a container.
+then builds **multi-arch images** (`linux/amd64` + `linux/arm64`) on native runners
+(no QEMU): each architecture pushes by digest, a merge job combines them into one
+manifest list on `ghcr.io/<owner>/vellum` (`latest`, branch, semver, and `sha-*` tags),
+and the pushed image is smoke-tested by running the acceptance suite against a
+container on **both** architectures (the arm64 leg exercises chromium and
+better-sqlite3 natively).
 
 ## The acceptance loop (architecture §11)
 
