@@ -1,0 +1,370 @@
+:root {
+  --bg: #111317;
+  --surface: #1a1d23;
+  --surface-raised: #22262e;
+  --border: #2b3038;
+  --text: #e3e6eb;
+  --text-muted: #8a919c;
+  --accent: #4d8eff;
+  --accent-hover: #6aa2ff;
+  --danger: #ff5a5a;
+  --success: #3ccf4a;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --radius: 6px;
+  --gap: 12px;
+}
+
+.vellum-root {
+  font-family: var(--font);
+  color: var(--text);
+  background: var(--bg);
+  min-height: 100vh;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.vellum-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--columns, 12), 1fr);
+  gap: var(--gap);
+}
+
+.vellum-grid > * {
+  min-width: 0;
+}
+
+.vellum-stack {
+  display: flex;
+  gap: var(--gap);
+}
+
+.vellum-stack-vertical {
+  flex-direction: column;
+}
+
+.vellum-stack-horizontal {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.vellum-section,
+.vellum-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+.vellum-section-title,
+.vellum-card-title {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.vellum-tabs {
+  display: flex;
+  flex-direction: column;
+}
+
+.vellum-tab-list {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.vellum-tab {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.vellum-tab-active {
+  color: var(--text);
+  border-bottom: 2px solid var(--accent);
+}
+
+.vellum-tab-panel {
+  padding-top: 12px;
+}
+
+.vellum-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vellum-checklist-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.vellum-checklist-row:hover {
+  background: var(--surface-raised);
+}
+
+.vellum-checklist-box {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.vellum-checklist-box-checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.vellum-checklist-label {
+  font-size: 0.95rem;
+  word-break: break-word;
+}
+
+.vellum-checklist-label-done {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.vellum-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vellum-metric-value {
+  font-size: 2rem;
+  font-weight: 700;
+}
+
+.vellum-metric-label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.vellum-metric-bar-bg {
+  height: 6px;
+  background: var(--surface-raised);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.vellum-metric-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+}
+
+.vellum-chart {
+  width: 100%;
+}
+
+.vellum-chart-svg {
+  display: block;
+  width: 100%;
+  height: 200px;
+}
+
+.vellum-chart-title {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.vellum-table-wrap {
+  overflow: auto;
+}
+
+.vellum-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.vellum-table th,
+.vellum-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.vellum-table th {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.vellum-table tr:last-child td {
+  border-bottom: none;
+}
+
+.vellum-text {
+  line-height: 1.5;
+}
+
+.vellum-text-heading {
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.vellum-text-caption {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.vellum-text-body {
+  font-size: 1rem;
+}
+
+.vellum-image {
+  width: 100%;
+  border-radius: var(--radius);
+  object-fit: contain;
+  background: var(--surface-raised);
+  min-height: 120px;
+  display: block;
+}
+
+.vellum-image-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  min-height: 120px;
+  background: var(--surface-raised);
+}
+
+.vellum-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  border: none;
+  font-size: 0.95rem;
+  cursor: pointer;
+  color: var(--text);
+  background: var(--surface-raised);
+}
+
+.vellum-btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.vellum-btn-secondary {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+}
+
+.vellum-btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.vellum-btn:hover {
+  filter: brightness(1.15);
+}
+
+.vellum-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.vellum-overflow-scroll {
+  overflow: auto;
+}
+
+.vellum-paginate {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.vellum-empty {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  padding: 12px 0;
+}
+
+.vellum-unknown {
+  color: var(--danger);
+  padding: 8px 0;
+}
+
+/* compact override (per-target density hint) */
+.vellum-compact.vellum-section,
+.vellum-compact.vellum-card {
+  padding: 8px 10px;
+}
+
+.vellum-compact .vellum-checklist-row {
+  padding: 4px 6px;
+}
+
+.vellum-compact .vellum-metric-value {
+  font-size: 1.25rem;
+}
+
+.vellum-compact.vellum-metric .vellum-metric-value {
+  font-size: 1.25rem;
+}
+
+.vellum-compact .vellum-table th,
+.vellum-compact .vellum-table td {
+  padding: 4px 8px;
+}
+
+.vellum-compact.vellum-text {
+  font-size: 0.85rem;
+}
+
+@media (max-width: 480px) {
+  .vellum-root {
+    padding: 8px;
+  }
+
+  .vellum-section,
+  .vellum-card {
+    padding: 12px;
+  }
+
+  .vellum-grid {
+    gap: 8px;
+  }
+
+  .vellum-stack {
+    gap: 8px;
+  }
+
+  .vellum-metric-value {
+    font-size: 1.5rem;
+  }
+
+  .vellum-table th,
+  .vellum-table td {
+    padding: 6px 8px;
+  }
+}

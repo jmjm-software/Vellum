@@ -1,0 +1,24 @@
+{
+  "name": "vellum",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "packages/core",
+    "packages/server",
+    "packages/renderer",
+    "packages/web",
+    "packages/cli",
+    "packages/preview-worker"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "dev:server": "npm run dev -w @vellum/server",
+    "dev:web": "npm run dev -w @vellum/web"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  }
+}

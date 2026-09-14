@@ -1,0 +1,104 @@
+/* Live-client chrome (banner, badges, spinner). Dashboard visuals live in @vellum/renderer. */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #111317;
+  color: #e3e6eb;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-banner {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 16px;
+  background: #1a1d23;
+  border-bottom: 1px solid #2b3038;
+  font-size: 0.85rem;
+}
+
+.app-title {
+  color: #8a919c;
+  font-weight: 600;
+}
+
+.app-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.app-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  border: 1px solid transparent;
+}
+
+.app-badge-offline {
+  color: #ff8f8f;
+  border-color: #5a2b2b;
+  background: #2a1a1a;
+}
+
+.app-badge-stale {
+  color: #f5c26b;
+  border-color: #5a4a2b;
+  background: #2a241a;
+}
+
+.app-badge-pending {
+  color: #8ab4ff;
+  border-color: #2b3f5a;
+  background: #1a2230;
+}
+
+/* Deterministic CSS spinner (rotation is UI chrome, not data rendering). */
+.app-spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid #2b3f5a;
+  border-top-color: #8ab4ff;
+  border-radius: 50%;
+  display: inline-block;
+  animation: app-spin 0.9s linear infinite;
+}
+
+@keyframes app-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.app-content {
+  flex: 1;
+}
+
+.app-message {
+  padding: 32px 24px;
+  color: #8a919c;
+  font-size: 0.95rem;
+}
+
+.app-message code {
+  background: #1a1d23;
+  border: 1px solid #2b3038;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
