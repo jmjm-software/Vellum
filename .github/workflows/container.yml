@@ -1,0 +1,124 @@
+name: container
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Full acceptance suite on the host before any image is pushed
+  # ---------------------------------------------------------------------------
+  test:
+    name: build + e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Build all packages
+        run: npm run build
+
+      - name: Install chromium for the preview worker
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E acceptance suite
+        run: |
+          bash scripts/stack-up.sh /tmp/vellum-ci
+          node scripts/e2e.mjs
+          bash scripts/stack-down.sh
+
+      - name: MCP integration test
+        env:
+          VELLUM_DATA_DIR: /tmp/vellum-ci-mcp
+        run: |
+          bash scripts/stack-up.sh /tmp/vellum-ci-mcp
+          node scripts/mcp-test.mjs
+          bash scripts/stack-down.sh
+
+  # ---------------------------------------------------------------------------
+  # Build the image; push to GHCR on main/tags; smoke-test the pushed image
+  # ---------------------------------------------------------------------------
+  image:
+    name: build & push image
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build${{ github.event_name != 'pull_request' && ' & push' || '' }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Smoke-test the exact image that was pushed: run the acceptance suite
+      # against a container (server + preview worker via the `all` command).
+      - uses: actions/setup-node@v4
+        if: github.event_name != 'pull_request'
+        with:
+          node-version: 22
+
+      - name: Smoke test pushed image
+        if: github.event_name != 'pull_request'
+        run: |
+          # metadata-action's type=sha emits sha-<short>; resolve the short form
+          SHORT="sha-$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          docker run -d --name vellum-smoke -p 8787:8787 "${REGISTRY}/${IMAGE_NAME}:${SHORT}"
+          for i in $(seq 1 45); do
+            curl -sf localhost:8787/api/health > /dev/null && break
+            sleep 2
+          done
+          curl -sf localhost:8787/api/health
+          node scripts/e2e.mjs
+          docker logs vellum-smoke --tail 40
+
+      - name: Container logs on failure
+        if: failure()
+        run: docker logs vellum-smoke --tail 200 || true

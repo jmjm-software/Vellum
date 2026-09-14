@@ -5,7 +5,7 @@ const transport = new StdioClientTransport({
   command: "node",
   args: ["packages/server/dist/mcp-stdio.js"],
   cwd: "/home/josh/projects/vellum",
-  env: { ...process.env, VELLUM_DATA_DIR: "/tmp/vellum-e2e" }
+  env: { ...process.env, VELLUM_DATA_DIR: process.env.VELLUM_DATA_DIR ?? "/tmp/vellum-e2e" }
 });
 const client = new Client({ name: "e2e-harness", version: "1.0.0" });
 const initResult = await client.connect(transport);
