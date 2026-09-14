@@ -60,6 +60,35 @@ node packages/cli/dist/index.js events
 node packages/cli/dist/index.js history
 ```
 
+## Container
+
+One image serves every surface; the entrypoint selects the mode:
+
+```bash
+docker build -f Containerfile -t ghcr.io/<org>/vellum:local .   # or podman build
+
+docker run -p 8787:8787 -v vellum-data:/data ghcr.io/<org>/vellum:local            # server + preview worker
+docker run -p 8787:8787 -v vellum-data:/data ghcr.io/<org>/vellum:local server     # HTTP server only
+docker run -v vellum-data:/data ghcr.io/<org>/vellum:local worker                  # preview worker only
+docker run -i -v vellum-data:/data ghcr.io/<org>/vellum:local mcp                  # MCP stdio server for a harness
+docker run --rm -e VELLUM_SERVER=http://<host>:8787 ghcr.io/<org>/vellum:local cli status
+```
+
+- Port `8787` is exposed (client API, agent API, SSE, static web client, `/preview.html`).
+- State lives in the `/data` volume (`VELLUM_DATA_DIR`); screenshots under `/data/artifacts`.
+- The image bundles chromium for the preview worker, so previews run inside the container
+  against its own server (`VELLUM_RENDERER_URL=http://127.0.0.1:8787` by default).
+- Set `VELLUM_CLIENT_TOKEN` / `VELLUM_AGENT_TOKEN` in production; unset means dev defaults
+  plus a startup warning.
+- A healthcheck probes `/api/health`.
+
+## CI
+
+`.github/workflows/container.yml` runs the e2e + MCP acceptance suites on every push/PR,
+then builds the image with buildx (GHA cache), pushes to `ghcr.io/<owner>/vellum` on
+`main`/tags (`latest`, branch, semver, and `sha-*` tags), and smoke-tests the pushed image
+by running the acceptance suite against a container.
+
 ## The acceptance loop (architecture §11)
 
 `scripts/e2e.mjs` exercises: context → draft edit → preview job → publish guard (stale review

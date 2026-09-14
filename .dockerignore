@@ -1,0 +1,14 @@
+node_modules
+**/node_modules
+**/dist
+.git
+.github
+logs
+.vellum-data
+android
+*.md
+!README.md
+scripts/stack-up.sh
+scripts/stack-down.sh
+scripts/e2e.mjs
+scripts/mcp-test.mjs
