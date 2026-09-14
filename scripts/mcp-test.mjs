@@ -11,7 +11,7 @@ const transport = new StdioClientTransport({
   command: process.execPath,
   args: [join(repoRoot, "packages", "server", "dist", "mcp-stdio.js")],
   cwd: repoRoot,
-  env: { ...process.env, VELLUM_DATA_DIR: "/tmp/vellum-e2e" }
+  env: { ...process.env, VELLUM_DATA_DIR: process.env.VELLUM_DATA_DIR ?? "/tmp/vellum-e2e" }
 });
 const client = new Client({ name: "e2e-harness", version: "1.0.0" });
 const initResult = await client.connect(transport);
@@ -25,8 +25,58 @@ const tools = await client.listTools();
 console.log("tools:", tools.tools.map((t) => t.name).join(", "));
 
 // 1. context
-const ctx = await client.callTool({ name: "dashboard_context", arguments: {} });
-const ctxJson = JSON.parse(ctx.content[0].text);
+let ctx = await client.callTool({ name: "dashboard_context", arguments: {} });
+let ctxJson = JSON.parse(ctx.content[0].text);
+
+// Self-seed when running against a fresh database: exercises dashboard_data and
+// dashboard_edit over MCP as part of the integration test.
+if (!ctxJson.draft) {
+  await client.callTool({
+    name: "dashboard_data",
+    arguments: {
+      op: "create",
+      definition: { id: "shopping", title: "Shopping list", ownership: "dashboard", schema: { kind: "list" } },
+      value: {
+        kind: "list",
+        items: [
+          { id: "milk", label: "Milk", done: false },
+          { id: "bread", label: "Bread", done: false },
+          { id: "coffee", label: "Coffee beans", done: true }
+        ]
+      }
+    }
+  });
+  const edit = await client.callTool({
+    name: "dashboard_edit",
+    arguments: {
+      base: "blank",
+      patches: [
+        {
+          op: "replaceRoot",
+          root: {
+            id: "root",
+            type: "grid",
+            props: { columns: 12, gap: 12 },
+            children: [
+              {
+                id: "shopping-panel",
+                type: "card",
+                props: { title: "Shopping" },
+                children: [{ id: "shopping-list", type: "checklist", props: { dataset: "shopping", maxVisible: 6, overflow: "showMore" } }]
+              }
+            ]
+          }
+        },
+        { op: "setDatasets", datasets: ["shopping"] },
+        { op: "setIntent", intent: { purpose: "MCP integration test dashboard" } }
+      ]
+    }
+  });
+  const editJson = JSON.parse(edit.content[0].text);
+  if (!editJson.valid) throw new Error(`self-seed edit invalid: ${JSON.stringify(editJson.diagnostics)}`);
+  ctx = await client.callTool({ name: "dashboard_context", arguments: {} });
+  ctxJson = JSON.parse(ctx.content[0].text);
+}
 console.log("context: published rev", ctxJson.published?.revision, "| datasets:", ctxJson.datasets.map((d) => d.id).join(","), "| draft:", ctxJson.draft?.id, "v" + ctxJson.draft?.version);
 
 // 2. data read
