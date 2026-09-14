@@ -20,10 +20,21 @@ function useApi(token: string | null) {
     return h;
   }, [token]);
 
-  const getState = useCallback(async (): Promise<DashboardState> => {
+  const getState = useCallback(async (): Promise<{ state: DashboardState; offline: boolean }> => {
     const res = await fetch('/api/state', { headers });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json() as Promise<DashboardState>;
+    const offline = res.headers.get('x-vellum-offline') === '1';
+    const state = (await res.json()) as DashboardState;
+    if (offline) {
+      // Android shell served the last cached snapshot (§4: retain last usable
+      // revision and show that information may be stale).
+      try {
+        (window as unknown as { VellumBridge?: { postMessage: (s: string) => void } }).VellumBridge?.postMessage(
+          JSON.stringify({ type: 'cacheState', json: JSON.stringify(state) })
+        );
+      } catch { /* bridge absent */ }
+    }
+    return { state, offline };
   }, [headers]);
 
   const postAction = useCallback(async (body: SubmitActionRequest): Promise<SubmitActionResult> => {
@@ -142,9 +153,10 @@ export default function App() {
 
   const fetchState = useCallback(async () => {
     try {
-      const s = await getState();
+      const { state: s, offline } = await getState();
       setState(s);
-      setStale(false);
+      setOffline(offline);
+      setStale(offline);
       setLoadError(null);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : String(err));
@@ -171,6 +183,10 @@ export default function App() {
 
   useEffect(() => {
     void fetchState();
+    // Android shell: dispatch after replaying a flushed offline queue (§9).
+    const onRefresh = () => void fetchState();
+    window.addEventListener('vellum:refresh', onRefresh);
+    return () => window.removeEventListener('vellum:refresh', onRefresh);
   }, [fetchState]);
 
   const handleAction = useCallback(
@@ -205,7 +221,15 @@ export default function App() {
         }
         await fetchState();
       } catch (err) {
-        setActionError(err instanceof Error ? err.message : String(err));
+        // Offline fallback: let the native shell queue the action locally and
+        // replay it on reconnect (server dedupes by idempotencyKey, §9).
+        const bridge = (window as unknown as { VellumBridge?: { postMessage: (s: string) => void } }).VellumBridge;
+        if (bridge && (offline || err instanceof TypeError)) {
+          bridge.postMessage(JSON.stringify({ type: 'queueAction', body }));
+          setActionError('queued offline — will sync when back online');
+        } else {
+          setActionError(err instanceof Error ? err.message : String(err));
+        }
         setStale(true);
         void fetchState();
       } finally {

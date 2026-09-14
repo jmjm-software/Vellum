@@ -4,3 +4,5 @@ dist/
 logs/
 *.tsbuildinfo
 packages/web/dist/
+android/
+local.properties

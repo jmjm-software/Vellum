@@ -1,19 +1,64 @@
-# Android (future milestone)
+# Vellum Android (implemented)
 
-Per `architecture.md` §4 and §11, the Android surface is deliberately **not** part of the first
-complete loop. When built, it will be:
+Kotlin shell + WebView hosting the **same `@vellum/renderer` build** the web app uses, plus a
+Glance launcher widget rendering the agent-designed `WidgetSpec` compact presentation.
 
-1. **Kotlin shell + WebView** hosting the exact same `@vellum/renderer` build served by the
-   dashboard service (or bundled asset), with:
-   - account setup and token storage (client token only),
-   - local caching of the last publication for offline use (stale indicator),
-   - deep links, lifecycle handling,
-   - **no broad JavaScript bridge** — a minimal, message-passing-only interface for actions
-     (architecture §10 security).
-2. **Glance launcher widget**: a small trusted native renderer for the `WidgetSpec` compact
-   presentation (text, metric, list, progress, image, approved actions) already modeled in
-   `@vellum/core`. Widget previews must exercise the native implementation, not a browser
-   screenshot. Flexible sizing per Android launcher-cell variance guidance.
+## What ships in this module (`android/app`)
 
-The server already models `widget` in `DesignContent` and the `widget` target kind, so the
-design/publish pipeline does not change when this lands.
+| Piece | Behavior |
+| --- | --- |
+| `MainActivity` | WebView shell: loads the configured server, injects the client token into `localStorage.vellum_client_token` (the web client's existing transport), deep link `vellum://dashboard`, options menu (refresh/settings) |
+| `VellumWebViewClient` | Online: pass-through (page fetches with its own token). Offline: serves the cached web bundle + cached `/api/state` tagged `X-Vellum-Offline: 1` (web client shows the stale banner); other APIs 503 |
+| `Bridge` | The **only** JS surface, one method `postMessage`: `queueAction` (offline action queue, replayed on reconnect — server dedupes by idempotencyKey), `cacheState`, `ready`. No broad WebView bridge (§10). |
+| `ShellStore` | Disk caches: web bundle (primed from `index.html` + hashed assets after first load), last `/api/state` payload, offline action queue |
+| `NetworkMonitor` | Available/lost transitions → flush queue + `vellum:refresh` event + reload |
+| `SettingsActivity` | Server URL + client token in `EncryptedSharedPreferences` (client token only — agent tokens never live on a phone), test-connection button |
+| `WidgetUpdateWorker` | Periodic (15 min) + on-foreground refresh of the widget snapshot + asset prefetch |
+| `VellumWidget` | Native Glance renderer for `WidgetSpec`: text (title/caption/body), metric, list (filter `unchecked`, `maxItems`, remaining count), progress (block bar), image (cached asset), action buttons. **Flexible sizing**: item budget adapts to `LocalSize` (launchers disagree about cell sizes). |
+| `PerformToggle`/`PerformEvent` | Widget actions → the same `/api/actions` endpoint as the web client (dashboard-owned = apply locally; mirrored = harness event). Never a model call. |
+
+The server needs **no changes** to support this: `/api/state` already carries the publication
+(including `widget`) + datasets, and `/api/assets/:id` serves images.
+
+## Build
+
+```bash
+# one-time toolchain (any Linux/macOS):
+#   - JDK 17, Android SDK (compileSdk 35, build-tools 35), Gradle 8.10.2
+#   - pointed to by android/local.properties (sdk.dir=...)
+
+cd android
+./gradlew assembleDebug        # apk: app/build/outputs/apk/debug/app-debug.apk
+./gradlew lintDebug            # static analysis
+```
+
+## Manual test on a device/emulator
+
+1. Run a vellum server: `bash scripts/stack-up.sh /tmp/vellum-dev`
+2. Publish a design with a shopping list (see `scripts/e2e.mjs` for the payloads)
+3. `adb install android/app/build/outputs/apk/debug/app-debug.apk`
+4. First launch → Settings → server URL (`http://<host-ip>:8787`) + client token (`client-dev-token`)
+5. Verify: dashboard renders; kill the server → app still shows the last state with the
+   offline banner; toggle an item offline → comes back after reconnect; long-press → add
+   the Vellum widget → it renders the agent's widget design (title/count/items).
+
+## Known limitations (documented, not hidden)
+
+- **Widget preview is device-only.** The architecture's rule — widget preview must exercise the
+  native implementation, never a browser screenshot — is honored by NOT offering a browser
+  preview for widgets. There is no `widget` entry in the preview-worker profiles.
+- Cleartext HTTP is permitted (`usesCleartextTraffic=true`) for self-hosted LAN servers; use
+  HTTPS in production.
+- Image components in the widget render only from the prefetched cache (no lazy network load
+  in background updates).
+- Widget update cadence is WorkManager periodic (15 min) + foreground refresh; push-level
+  freshness is a harness/host concern (§9 continuous mode).
+- `app-debug.apk` is a debug build; the release build has minification disabled for now.
+
+## Milestone status (architecture §11)
+
+- [x] Minimal product slice (checklist + metric, drafts, previews, guarded publish)
+- [x] Shared renderer validated in a real harness (hermes)
+- [x] **Android shell** (this module)
+- [x] **One native launcher-widget presentation** (shopping-list widget, this module)
+- [ ] Catalogue expansion, more widget presentations, richer CLI TUI

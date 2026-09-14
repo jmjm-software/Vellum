@@ -26,7 +26,9 @@ contracts.
 | `packages/cli` | Terminal client: status, data, events, history, rollback |
 | `packages/preview-worker` | Playwright worker: screenshots, diagnostics, interaction tests |
 
-Android (Kotlin WebView shell + Glance widgets) is a later milestone — see `android/README.md`.
+Android is implemented as a Kotlin WebView shell (shared renderer, offline cache, encrypted
+client-token storage) + a Glance launcher widget rendering the agent-designed `WidgetSpec` —
+see `android/README.md`.
 
 ## Status
 
