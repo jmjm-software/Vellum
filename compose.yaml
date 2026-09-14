@@ -1,0 +1,47 @@
+# Vellum — one service per container, shared state volume.
+#
+#   docker compose up --build -d
+#   docker compose logs -f server worker
+#
+# Topology notes:
+# - `server` owns the HTTP API, SSE, static web client and /preview.html.
+# - `worker` runs the Playwright preview worker; it renders against the server
+#   over the compose network and shares the SAME volume, because SQLite is
+#   embedded (a file, not a service): /data/store.db + /data/artifacts.
+# - SQLite is single-writer/single-host: do not scale replicas and do not put
+#   /data on a network filesystem (WAL). Multi-replica deployments are the
+#   trigger to move to PostgreSQL (architecture.md §10).
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Containerfile
+    image: ghcr.io/jmjm-software/vellum:local
+    command: server
+    ports:
+      - "8787:8787"
+    environment:
+      VELLUM_CLIENT_TOKEN: ${VELLUM_CLIENT_TOKEN:-client-dev-token}
+      VELLUM_AGENT_TOKEN: ${VELLUM_AGENT_TOKEN:-agent-dev-token}
+    volumes:
+      - vellum-data:/data
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Containerfile
+    image: ghcr.io/jmjm-software/vellum:local
+    command: worker
+    environment:
+      # Render previews against the server container (serves /preview.html).
+      VELLUM_RENDERER_URL: http://server:8787
+    volumes:
+      - vellum-data:/data
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  vellum-data:

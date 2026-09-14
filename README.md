@@ -82,6 +82,29 @@ docker run --rm -e VELLUM_SERVER=http://<host>:8787 ghcr.io/<org>/vellum:local c
   plus a startup warning.
 - A healthcheck probes `/api/health`.
 
+### One service per container
+
+`compose.yaml` runs the split topology: a `server` container and a `worker`
+container sharing one `vellum-data` volume.
+
+```bash
+docker compose up --build -d
+```
+
+### Database topology
+
+There is no database server. SQLite is embedded: the state is a single file
+(`/data/store.db`, WAL mode) plus `/data/artifacts` for screenshots, opened
+in-process by the server and the preview worker. Consequences:
+
+- Backups = copy the volume (or `sqlite3 /data/store.db ".backup ..."` while stopped).
+- Single-writer, single-host: never scale replicas, never put `/data` on a network
+  filesystem. Multi-replica or managed-storage deployments are the trigger to move
+  to PostgreSQL (architecture.md §10); the app functions are storage-agnostic.
+- The default container command `all` (server + worker in one container) is a
+  single-box convenience; use `compose.yaml` or explicit `server` / `worker`
+  commands when you want process isolation.
+
 ## CI
 
 `.github/workflows/container.yml` runs the e2e + MCP acceptance suites on every push/PR,

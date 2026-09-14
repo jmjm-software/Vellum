@@ -10,7 +10,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 permissions:
   contents: read
@@ -64,6 +63,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # GHCR repository names must be lowercase; github.repository keeps the
+      # original case (e.g. jmjm-software/Vellum).
+      - name: Compute lowercase image name
+        id: image
+        run: echo "name=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
       - uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
@@ -78,7 +83,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -110,7 +115,7 @@ jobs:
         run: |
           # metadata-action's type=sha emits sha-<short>; resolve the short form
           SHORT="sha-$(echo "${GITHUB_SHA}" | cut -c1-7)"
-          docker run -d --name vellum-smoke -p 8787:8787 "${REGISTRY}/${IMAGE_NAME}:${SHORT}"
+          docker run -d --name vellum-smoke -p 8787:8787 "${REGISTRY}/${{ steps.image.outputs.name }}:${SHORT}"
           for i in $(seq 1 45); do
             curl -sf localhost:8787/api/health > /dev/null && break
             sleep 2
