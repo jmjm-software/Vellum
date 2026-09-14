@@ -10,6 +10,7 @@
     <string name="settings_fail">Could not reach server</string>
     <string name="widget_description">Compact agent-designed view of your Vellum dashboard datasets</string>
     <string name="widget_loading">Open Vellum to sync</string>
+    <string name="widget_none">Dashboard has no widget design yet</string>
     <string name="menu_settings">Settings</string>
     <string name="menu_refresh">Refresh</string>
 </resources>

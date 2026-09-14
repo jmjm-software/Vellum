@@ -69,9 +69,14 @@ private fun WidgetContent() {
             .padding(12.dp)
             .clickable(actionStartActivity<MainActivity>())
     ) {
-        if (spec == null || spec.components.isEmpty()) {
+        if (state == null) {
             Text(
                 text = context.getString(R.string.widget_loading),
+                style = TextStyle(color = ColorProvider(Color(0xFF9AA4AF)))
+            )
+        } else if (spec == null || spec.components.isEmpty()) {
+            Text(
+                text = context.getString(R.string.widget_none),
                 style = TextStyle(color = ColorProvider(Color(0xFF9AA4AF)))
             )
         } else {

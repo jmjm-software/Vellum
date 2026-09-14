@@ -123,6 +123,17 @@ async function main() {
         }
       },
       { op: "setDatasets", datasets: ["shopping", "power"] },
+      {
+        op: "setWidget",
+        widget: {
+          components: [
+            { kind: "text", text: "Shopping", emphasis: "title" },
+            { kind: "list", dataset: "shopping", maxItems: 4, filter: "unchecked", showRemainingCount: true },
+            { kind: "action", label: "Open dashboard", action: { kind: "openDashboard" } }
+          ],
+          datasets: ["shopping"]
+        }
+      },
       { op: "setOverride", target: "desktop", id: "shopping-panel", override: { span: 4, order: 2 } },
       { op: "setOverride", target: "desktop", id: "power-card", override: { span: 8, order: 1 } },
       { op: "setOverride", target: "phone", id: "shopping-panel", override: { order: 1 } },
@@ -133,6 +144,11 @@ async function main() {
   const draftId = edit1.json?.draftId;
   const draftV1 = edit1.json?.version;
   check("edit reports next step (preview)", typeof edit1.json?.nextStep === "string" && /preview/i.test(edit1.json.nextStep), edit1.json?.nextStep);
+
+  // the design carries an agent-authored widget presentation (§4)
+  const wd = await agent("POST", "/api/agent/context", { includeDesign: true });
+  const wdWidget = wd.json?.draft?.content?.widget;
+  check("design includes a widget spec", !!wdWidget && wdWidget.components?.length >= 2, wdWidget);
 
   // invalid design rejected (isolated in its own draft so the main draft stays valid)
   const badEdit = await agent("POST", "/api/agent/edit", {
