@@ -25,15 +25,14 @@ function useApi(token: string | null) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const offline = res.headers.get('x-vellum-offline') === '1';
     const state = (await res.json()) as DashboardState;
-    if (offline) {
-      // Android shell served the last cached snapshot (§4: retain last usable
-      // revision and show that information may be stale).
-      try {
-        (window as unknown as { VellumBridge?: { postMessage: (s: string) => void } }).VellumBridge?.postMessage(
-          JSON.stringify({ type: 'cacheState', json: JSON.stringify(state) })
-        );
-      } catch { /* bridge absent */ }
-    }
+    // Report every fresh snapshot to the native shell (Android): it caches and
+    // re-renders the launcher widget immediately — no 15-min wait, no extra
+    // fetch. (Android shell also serves this payload offline via X-Vellum-Offline.)
+    try {
+      (window as unknown as { VellumBridge?: { postMessage: (s: string) => void } }).VellumBridge?.postMessage(
+        JSON.stringify({ type: 'cacheState', json: JSON.stringify(state) })
+      );
+    } catch { /* bridge absent */ }
     return { state, offline };
   }, [headers]);
 

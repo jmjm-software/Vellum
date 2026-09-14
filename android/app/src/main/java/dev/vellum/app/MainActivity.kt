@@ -14,6 +14,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import dev.vellum.app.Prefs.isConfigured
 import dev.vellum.app.Prefs.serverUrl
 import dev.vellum.app.Prefs.clientToken
+import dev.vellum.app.widget.WidgetRenderWorker
 import dev.vellum.app.widget.WidgetUpdateWorker
 import org.json.JSONObject
 
@@ -121,7 +122,10 @@ class MainActivity : AppCompatActivity(), Bridge.Host {
     }
 
     override fun onCacheState(json: String) {
+        // Fresh snapshot from the page: cache for offline + re-render the
+        // launcher widget immediately (no network, no 15-min wait).
         ShellStore.cacheState(this, json)
+        WidgetRenderWorker.refresh(this)
     }
 
     override fun onPageReady() {

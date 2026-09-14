@@ -38,6 +38,7 @@ import dev.vellum.app.R
 import dev.vellum.app.ShellStore
 import dev.vellum.app.dto.ListItemDto
 import dev.vellum.app.dto.StateDto
+import dev.vellum.app.dto.WidgetActionDto
 import dev.vellum.app.dto.WidgetComponentDto
 import java.io.File
 
@@ -60,7 +61,6 @@ class VellumWidget : GlanceAppWidget() {
 private fun WidgetContent() {
     val context = LocalContext.current
     val state = remember { loadSnapshot(context) }
-    val spec = state?.publication?.content?.widget
 
     Column(
         modifier = GlanceModifier
@@ -74,11 +74,6 @@ private fun WidgetContent() {
                 text = context.getString(R.string.widget_loading),
                 style = TextStyle(color = ColorProvider(Color(0xFF9AA4AF)))
             )
-        } else if (spec == null || spec.components.isEmpty()) {
-            Text(
-                text = context.getString(R.string.widget_none),
-                style = TextStyle(color = ColorProvider(Color(0xFF9AA4AF)))
-            )
         } else {
             val size = LocalSize.current
             val budget = when {
@@ -86,11 +81,58 @@ private fun WidgetContent() {
                 size.height < 300.dp -> 5
                 else -> 8
             }
-            for (component in spec.components) {
+            val spec = state.publication?.content?.widget
+            val components = when {
+                spec != null && spec.components.isNotEmpty() -> spec.components
+                // No agent-authored WidgetSpec yet: conservative starter
+                // presentation from the first list/metric dataset, so the
+                // launcher widget is useful on any dashboard and the agent can
+                // replace or refine it later. Architecture §4 keeps the widget
+                // a small presentation of the same datasets — this is the same
+                // renderer, driven by a synthesized spec.
+                else -> starterSpec(state)
+            }
+            for (component in components) {
                 Render(component, state, budget)
+            }
+            if (components.isEmpty()) {
+                Text(
+                    text = context.getString(R.string.widget_none),
+                    style = TextStyle(color = ColorProvider(Color(0xFF9AA4AF)))
+                )
             }
         }
     }
+}
+
+/** Starter presentation chosen from the dashboard's own data (used only when
+ *  the published design carries no WidgetSpec). */
+private fun starterSpec(state: StateDto): List<WidgetComponentDto> {
+    val openAction = WidgetComponentDto(
+        kind = "action",
+        label = "Open dashboard",
+        action = WidgetActionDto(kind = "openDashboard")
+    )
+    val list = state.datasets.firstOrNull { it.value?.kind == "list" }
+    if (list != null) {
+        return listOf(
+            WidgetComponentDto(kind = "text", text = list.title.ifBlank { list.id }, emphasis = "title"),
+            WidgetComponentDto(kind = "list", dataset = list.id, maxItems = 4, filter = "unchecked", showRemainingCount = true),
+            openAction
+        )
+    }
+    val metric = state.datasets.firstOrNull { it.value?.kind == "metric" }
+    if (metric != null) {
+        val field = metric.value?.values?.keys?.firstOrNull()
+        if (field != null) {
+            return listOf(
+                WidgetComponentDto(kind = "text", text = metric.title.ifBlank { metric.id }, emphasis = "title"),
+                WidgetComponentDto(kind = "metric", dataset = metric.id, field = field, label = field),
+                openAction
+            )
+        }
+    }
+    return emptyList()
 }
 
 private fun loadSnapshot(context: Context): StateDto? =
@@ -179,7 +221,8 @@ private fun ListRow(item: ListItemDto, component: WidgetComponentDto) {
         )
         Text(
             text = item.label,
-            style = TextStyle(color = ColorProvider(if (item.done) Color(0xFF7B8590) else Color(0xFFE6E9EC)))
+            style = TextStyle(color = ColorProvider(if (item.done) Color(0xFF7B8590) else Color(0xFFE6E9EC))),
+            maxLines = 1
         )
     }
 }
