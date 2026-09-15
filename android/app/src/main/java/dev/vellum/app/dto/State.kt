@@ -48,6 +48,7 @@ data class WidgetComponentDto(
     val showRemainingCount: Boolean? = null,
     val assetId: String? = null,
     val alt: String? = null,
+    val size: String? = null,
     val href: String? = null,
     val action: WidgetActionDto? = null
 )

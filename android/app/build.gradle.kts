@@ -17,8 +17,8 @@ android {
         // over an existing app when the versionCode increases (otherwise the
         // install fails and the old app must be uninstalled first).
         // versionName is the human-readable counterpart.
-        versionCode = 7
-        versionName = "0.1.6"
+        versionCode = 8
+        versionName = "0.1.7"
     }
 
     buildTypes {

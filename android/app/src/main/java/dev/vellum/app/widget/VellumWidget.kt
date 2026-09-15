@@ -361,10 +361,13 @@ private fun WidgetImage(component: WidgetComponentDto) {
         contentDescription = component.alt ?: "",
         contentScale = ContentScale.Fit,
         // Explicit height: an Image with only fillMaxWidth can collapse to zero
-        // height in RemoteViews and become invisible.
+        // height in RemoteViews and become invisible. The height comes from the
+        // design's size hint (small|medium|large, default medium) so the agent
+        // can tune how much room the image takes — it can see the result in the
+        // widget previews attached to its review.
         modifier = GlanceModifier
             .fillMaxWidth()
-            .height(96.dp)
+            .height(imageHeight(component.size).dp)
             .cornerRadius(12.dp)
     )
 }
@@ -428,6 +431,16 @@ private fun PillRow(modifier: GlanceModifier, label: String) {
     ) {
         Text(text = label, style = accentStyle(), maxLines = 1)
     }
+}
+
+/**
+ * Widget image height per design hint. Kept in sync with
+ * WIDGET_IMAGE_HEIGHTS in @vellum/core (small 56, medium 96, large 160 dp).
+ */
+internal fun imageHeight(size: String?): Int = when (size) {
+    "small" -> 56
+    "large" -> 160
+    else -> 96
 }
 
 private fun formatNumber(v: Double): String =

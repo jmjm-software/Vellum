@@ -99,12 +99,24 @@ export interface WidgetSpec {
   datasets: ID[];
 }
 
+/**
+ * How much room a widget image takes. Semantic (not pixel values) so the native
+ * renderer stays in control of the actual layout; the agent tunes prominence.
+ */
+export type WidgetImageSize = "small" | "medium" | "large";
+
+export const WIDGET_IMAGE_HEIGHTS: Record<WidgetImageSize, number> = {
+  small: 56,
+  medium: 96,
+  large: 160
+};
+
 export type WidgetComponent =
   | { kind: "text"; text: string; emphasis?: "title" | "normal" | "caption" }
   | { kind: "metric"; dataset: ID; field: string; label?: string; unit?: string }
   | { kind: "list"; dataset: ID; maxItems: number; filter?: "unchecked" | "all"; showRemainingCount?: boolean }
   | { kind: "progress"; dataset: ID; label?: string }
-  | { kind: "image"; assetId: string; alt?: string }
+  | { kind: "image"; assetId: string; alt?: string; size?: WidgetImageSize }
   | { kind: "link"; label: string; href: string }
   | { kind: "action"; label: string; action: ActionSpec };
 

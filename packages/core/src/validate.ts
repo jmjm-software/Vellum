@@ -48,7 +48,12 @@ const zWidgetComponent: z.ZodType<unknown> = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("metric"), dataset: z.string(), field: z.string(), label: z.string().max(80).optional(), unit: z.string().max(20).optional() }),
   z.object({ kind: z.literal("list"), dataset: z.string(), maxItems: z.number().int().min(1).max(10), filter: z.enum(["unchecked", "all"]).optional(), showRemainingCount: z.boolean().optional() }),
   z.object({ kind: z.literal("progress"), dataset: z.string(), label: z.string().max(80).optional() }),
-  z.object({ kind: z.literal("image"), assetId: z.string().regex(idRe), alt: z.string().max(200).optional() }),
+  z.object({
+    kind: z.literal("image"),
+    assetId: z.string().regex(idRe),
+    alt: z.string().max(200).optional(),
+    size: z.enum(["small", "medium", "large"]).optional()
+  }),
   z.object({ kind: z.literal("link"), label: z.string().max(80), href: zSafeUrl }),
   z.object({
     kind: z.literal("action"),

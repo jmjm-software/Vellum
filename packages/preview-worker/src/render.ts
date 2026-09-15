@@ -8,6 +8,7 @@
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { Browser, Page } from "playwright";
+import { WIDGET_IMAGE_HEIGHTS } from "@vellum/core/types.js";
 import type {
   ComponentNode,
   Dataset,
@@ -582,7 +583,10 @@ export async function renderWidgetPreviews(
           height: size.height
         });
       }
-      return { screenshots, diagnostics: [...diagnostics, ...widgetDesignDiagnostics(content, datasets)] };
+      return {
+        screenshots,
+        diagnostics: [...diagnostics, ...widgetDesignDiagnostics(content, datasets, screenshots)]
+      };
     } catch (err) {
       diagnostics.push({
         severity: "error",
@@ -646,17 +650,46 @@ export async function renderWidgetPreviews(
     });
   }
 
-  return { screenshots, diagnostics: [...diagnostics, ...widgetDesignDiagnostics(content, datasets)] };
+  return {
+    screenshots,
+    diagnostics: [...diagnostics, ...widgetDesignDiagnostics(content, datasets, screenshots)]
+  };
 }
 
 /**
  * The widget is a constrained surface; flag what a launcher will actually do to
  * the design (truncation is the usual complaint).
  */
-function widgetDesignDiagnostics(content: DesignContent, datasets: Dataset[]): Diagnostic[] {
+function widgetDesignDiagnostics(
+  content: DesignContent,
+  datasets: Dataset[],
+  screenshots: ScreenshotArtifact[] = []
+): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   const widget = content.widget;
   if (!widget) return diagnostics;
+
+  // Promptness hints from the rendered pixels: a widget image that occupies a
+  // sliver of a roomy widget is the "image is too small" complaint, and the
+  // agent can fix it by editing the design (size: small|medium|large).
+  const tallest = screenshots.reduce((max, s) => Math.max(max, s.height), 0);
+  if (tallest > 0) {
+    for (const component of widget.components) {
+      if (component.kind !== "image") continue;
+      const size = component.size ?? "medium";
+      const heightDp = WIDGET_IMAGE_HEIGHTS[size] ?? WIDGET_IMAGE_HEIGHTS.medium;
+      if (heightDp * 2.5 < tallest) {
+        diagnostics.push({
+          severity: "info",
+          code: "widget_image_small",
+          message:
+            `widget image (size "${size}", ~${heightDp}dp) occupies a small part of a ${tallest}px tall widget — ` +
+            `consider size: "large" (${WIDGET_IMAGE_HEIGHTS.large}dp) or dropping another row`,
+          target: "widget"
+        });
+      }
+    }
+  }
   const listComponents = widget.components.filter((c) => c.kind === "list");
   for (const [index, component] of listComponents.entries()) {
     const dataset = datasets.find((d) => d.id === component.dataset);

@@ -84,6 +84,24 @@ The publish pipeline's screenshot review covers the **dashboard targets only** (
 | Native widget tests | Renders the real Glance widget and asserts the node tree: designed components render, `filter: unchecked` hides done items, `maxItems` truncates, remaining count appears, the cached image renders (or a visible placeholder), starter fallback works | `./gradlew :app:testDebugUnitTest` and the `android-apk` CI job |
 | Native widget renderer | Renders the real Glance widget (its RemoteViews) to PNGs at launcher sizes and attaches them to the **review record**, so `dashboard_preview` returns them to the agent as image blocks and a failed render **blocks publication** | `scripts/render-widget-previews.sh` via `VELLUM_WIDGET_RENDERER_CMD`; previews also land in `android/app/build/widget-previews` (CI artifact `vellum-widget-previews`) |
 
+### What the agent can tune on the widget
+
+The widget spec is a small trusted catalogue; the agent controls prominence, not pixels:
+
+| Component | Agent-controlled presentation |
+| --- | --- |
+| `text` | `emphasis: title \| normal \| caption` (single/two-line, muted or bright) |
+| `list` | `maxItems` (≤6 recommended), `filter: all \| unchecked`, `showRemainingCount` |
+| `image` | **`size: small \| medium \| large`** = ~56/96/160dp of widget height (default medium) |
+| `metric` / `progress` | label + value/bar; dataset-driven |
+| `link` / `action` | label (single line) and target (http(s) link, dashboard, toggle, event) |
+
+The review closes the loop on all of that: the worker renders the widget natively and reports
+`widget_image_small` when an image occupies a sliver of a roomy widget, so "the image is too small"
+is something the agent can see **and** fix by editing the design (e.g. `size: "large"`, or dropping
+another row) — verified by a pixel test that renders the same widget with `small` and `large`
+and asserts the image footprint grows (~784 → ~6400 marker pixels at 320x320).
+
 ### Enabling the native widget review
 
 ```bash
