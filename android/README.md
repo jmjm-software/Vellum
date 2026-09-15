@@ -82,12 +82,28 @@ The publish pipeline's screenshot review covers the **dashboard targets only** (
 | --- | --- | --- |
 | Design validation (server) | Widget-spec sanity warnings: component count, single-line text length, list `maxItems`, unknown assets, unknown datasets | every `dashboard_edit` |
 | Native widget tests | Renders the real Glance widget and asserts the node tree: designed components render, `filter: unchecked` hides done items, `maxItems` truncates, remaining count appears, the cached image renders (or a visible placeholder), starter fallback works | `./gradlew :app:testDebugUnitTest` and the `android-apk` CI job |
-| Device/emulator | True visual check of the launcher rendering | **not wired into the review loop yet** (see below) |
+| Native widget renderer | Renders the real Glance widget (its RemoteViews) to PNGs at launcher sizes and attaches them to the **review record**, so `dashboard_preview` returns them to the agent as image blocks and a failed render **blocks publication** | `scripts/render-widget-previews.sh` via `VELLUM_WIDGET_RENDERER_CMD`; previews also land in `android/app/build/widget-previews` (CI artifact `vellum-widget-previews`) |
 
-Not yet implemented: a native widget **visual** review inside the guarded publish flow. That needs
-a renderer that can produce widget pixels (emulator or a device farm) as a separate worker that
-attaches screenshots to the review — the architecture anticipates this as "when widget editing is
-enabled, its preview path must exercise the native implementation".
+### Enabling the native widget review
+
+```bash
+# Renderer (needs JDK 17 + Android SDK; same toolchain as building the APK):
+export VELLUM_WIDGET_RENDERER_CMD="$PWD/scripts/render-widget-previews.sh"
+bash scripts/stack-up.sh        # preview worker picks it up
+```
+
+- The worker writes the same state shape the widget consumes (`publication.content.widget` +
+  `datasets` + inlined asset bytes) to `widget-spec.json`, runs the command, and collects the
+  `widget-*.png` files it produces into `<data>/artifacts/reviews/<reviewId>/widget/`.
+- `dashboard_context.capabilities.widget` reflects whether a renderer is attached, so the agent
+  knows before publishing whether the widget will actually be reviewed.
+- Without a renderer the review records an explicit `widget_preview_unavailable` **warning**
+  (publish still allowed) instead of silently skipping the widget.
+- Renderer output is real RemoteViews pixels (Robolectric native graphics). It is *not* a browser
+  approximation; fidelity is high but the launcher's own chrome (padding, corner masks, dynamic
+  colors) is not part of the image.
+- The default container image has no JDK/Android SDK, so a self-hosted deployment either runs the
+  renderer where that toolchain exists or uses the CI artifacts.
 
 ## Known limitations (documented, not hidden)
 

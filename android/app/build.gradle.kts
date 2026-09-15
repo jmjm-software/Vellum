@@ -43,6 +43,16 @@ android {
     }
 }
 
+// The widget preview renderer is driven by -Dvellum.widgetSpec / -Dvellum.outDir:
+// forward them into the test JVM and never treat the render task as up to date
+// (the inputs are properties, not files Gradle tracks).
+tasks.withType<Test>().configureEach {
+    listOf("vellum.widgetSpec", "vellum.outDir").forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
+    outputs.upToDateWhen { false }
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
@@ -64,4 +74,5 @@ dependencies {
     testImplementation("androidx.glance:glance-appwidget-testing:1.1.1")
     testImplementation("androidx.glance:glance-testing:1.1.1")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    testImplementation("androidx.work:work-testing:2.10.0")
 }

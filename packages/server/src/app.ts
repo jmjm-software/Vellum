@@ -321,7 +321,13 @@ export class AppService {
         : null,
       datasets,
       targets: PREVIEW_PROFILES.map((p) => ({ kind: p.target, supported: true })),
-      capabilities: { preview: true, widget: false, continuousMode: false },
+      capabilities: {
+        preview: true,
+        // Whether a native widget renderer is attached to the preview worker:
+        // determines if a widget design will get a visual review before publish.
+        widget: getMeta("widget_renderer") === "available",
+        continuousMode: false,
+      },
       guidance: AUTHORING_GUIDANCE,
       catalogue: catalogueDescription(),
       versions: { format: FORMAT_VERSION, catalogue: CATALOGUE_VERSION, renderer: RENDERER_VERSION },

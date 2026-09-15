@@ -298,6 +298,21 @@ async function main() {
       review.diagnostics
     );
 
+    // Launcher widget: reviewed natively when a renderer is attached, otherwise
+    // the review must say out loud that the widget was not visually reviewed.
+    const ctxWidget = await agent("POST", "/api/agent/context", {});
+    const widgetCapable = ctxWidget.json?.capabilities?.widget === true;
+    const widgetShots = (review.screenshots ?? []).filter((s) => s.target === "widget");
+    if (widgetCapable) {
+      check("widget design got a native preview (widget screenshots)", widgetShots.length >= 1, review.screenshots);
+    } else {
+      check(
+        "widget design reported as not visually reviewed",
+        (review.diagnostics ?? []).some((d) => d.code === "widget_preview_unavailable"),
+        review.diagnostics
+      );
+    }
+
     if (review.status !== "failed") {
       const pub = await agent("POST", "/api/agent/publish", {
         draftId,

@@ -61,6 +61,15 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Upload native widget previews
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vellum-widget-previews
+          path: android/app/build/widget-previews
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Upload native widget test report
         if: always()
         uses: actions/upload-artifact@v4

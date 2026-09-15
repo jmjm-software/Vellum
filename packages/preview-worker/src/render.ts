@@ -5,7 +5,7 @@
  * Every profile gets a fresh page (isolation); at most MAX_CONCURRENT_PAGES
  * pages are open at once against a single reused browser.
  */
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { Browser, Page } from "playwright";
 import type {
@@ -471,4 +471,151 @@ export async function runAllProfiles(
   // Preserve profile order regardless of completion order.
   const byName = new Map(results.map((r) => [r.profile, r]));
   return profiles.map((p) => byName.get(p.name)!).filter(Boolean);
+}
+
+// ---------------------------------------------------------------------------
+// Native widget previews (architecture §4: the widget preview path must
+// exercise the native implementation, never a browser stand-in)
+// ---------------------------------------------------------------------------
+
+/**
+ * Payload handed to the native widget renderer: the same client-facing state
+ * shape the widget itself consumes (publication.content.widget + datasets),
+ * plus the inlined image bytes so the renderer needs no network.
+ */
+export interface WidgetPreviewSpec {
+  serverTime: number;
+  publication: {
+    revision: number;
+    contentHash: string;
+    publishedAt: number;
+    content: { widget: unknown };
+  };
+  datasets: Dataset[];
+  /** assetId -> base64 bytes (inlined so the renderer needs no network). */
+  assets: Record<string, string>;
+}
+
+export interface WidgetPreviewResult {
+  screenshots: ScreenshotArtifact[];
+  diagnostics: Diagnostic[];
+}
+
+/**
+ * Renders the launcher widget natively via an external renderer command
+ * (VELLUM_WIDGET_RENDERER_CMD). The command receives a spec JSON path and an
+ * output directory and must write widget-*.png files.
+ *
+ * A failure is an error diagnostic: the review then fails and publication is
+ * blocked, which is the point — an unreviewed widget must not ship silently.
+ */
+export async function renderWidgetPreviews(
+  command: string,
+  serverUrl: string,
+  reviewId: string,
+  artifactDir: string,
+  content: DesignContent,
+  datasets: Dataset[],
+  inlined: Record<string, string>,
+  timeoutMs = 180_000
+): Promise<WidgetPreviewResult> {
+  const diagnostics: Diagnostic[] = [];
+  const screenshots: ScreenshotArtifact[] = [];
+
+  const widgetDir = join(artifactDir, "reviews", reviewId, "widget");
+  mkdirSync(widgetDir, { recursive: true });
+  const specPath = join(widgetDir, "widget-spec.json");
+
+  const assets: Record<string, string> = {};
+  for (const [assetId, dataUrl] of Object.entries(inlined)) {
+    const base64 = dataUrl.includes("base64,") ? dataUrl.slice(dataUrl.indexOf("base64,") + 7) : dataUrl;
+    assets[assetId] = base64;
+  }
+
+  const spec: WidgetPreviewSpec = {
+    serverTime: Date.now(),
+    publication: {
+      revision: 0,
+      contentHash: "",
+      publishedAt: Date.now(),
+      content: { widget: content.widget }
+    },
+    datasets: datasets.filter((d) => (content.widget?.datasets ?? []).includes(d.id)),
+    assets
+  };
+  writeFileSync(specPath, JSON.stringify(spec));
+
+  const { spawn } = await import("node:child_process");
+  const child = spawn("sh", ["-c", `${command} "${specPath}" "${widgetDir}"`], {
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+
+  let stderr = "";
+  child.stdout?.on("data", (chunk) => process.stdout.write(`[widget-renderer] ${chunk}`));
+  child.stderr?.on("data", (chunk) => {
+    stderr += String(chunk);
+  });
+
+  const exitCode = await new Promise<number>((resolve) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve(-1);
+    }, timeoutMs);
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve(code ?? -1);
+    });
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve(-1);
+    });
+  });
+
+  const produced = readdirSync(widgetDir).filter((f) => f.startsWith("widget-") && f.endsWith(".png")).sort();
+  if (exitCode !== 0 || produced.length === 0) {
+    diagnostics.push({
+      severity: "error",
+      code: "widget_render_failed",
+      message:
+        `native widget renderer failed (exit ${exitCode}${stderr ? `: ${stderr.trim().slice(0, 400)}` : ""})` +
+        (produced.length === 0 ? "; no widget previews were produced" : ""),
+      target: "widget"
+    });
+    return { screenshots, diagnostics };
+  }
+
+  for (const file of produced) {
+    const absPath = join(widgetDir, file);
+    const buf = readFileSync(absPath);
+    const size = pngSize(buf);
+    screenshots.push({
+      profile: file.replace(/\.png$/, ""),
+      target: "widget",
+      path: relative(artifactDir, absPath),
+      width: size.width,
+      height: size.height
+    });
+  }
+
+  // The widget is a constrained surface; flag what a launcher will actually do
+  // to the design (truncation is the usual complaint).
+  const widget = content.widget!;
+  const listComponents = widget.components.filter((c) => c.kind === "list");
+  for (const [index, component] of listComponents.entries()) {
+    const dataset = datasets.find((d) => d.id === component.dataset);
+    const items = dataset?.value?.kind === "list" ? dataset.value.items : [];
+    const visible = items.filter((i) => (component.filter === "unchecked" ? !i.done : true)).length;
+    if (visible > component.maxItems) {
+      diagnostics.push({
+        severity: "info",
+        code: "widget_list_truncated",
+        message: `widget list ${index + 1} shows ${component.maxItems} of ${visible} items${
+          component.showRemainingCount ? " (+N more shown)" : " with no remaining-count indicator"
+        }`,
+        target: "widget"
+      });
+    }
+  }
+
+  return { screenshots, diagnostics };
 }

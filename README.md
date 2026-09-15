@@ -151,6 +151,13 @@ without touching data.
 npm run build && node scripts/e2e.mjs          # API/publish/preview acceptance (44 checks)
 node scripts/check-live-image.mjs              # real-browser check: uploaded images render in the live client
 node scripts/publish-widget.mjs shopping       # guarded flow: add an agent-designed widget spec
+
+node scripts/check-live-image.mjs              # real-browser check: uploaded images render in the live client
+
+# Native widget review (needs JDK 17 + Android SDK): renders the real Glance
+# widget into the review, so widget designs are seen instead of guessed.
+export VELLUM_WIDGET_RENDERER_CMD="$PWD/scripts/render-widget-previews.sh"
+bash scripts/stack-up.sh && node scripts/e2e.mjs
 ```
 
 ## What the review covers
@@ -158,7 +165,7 @@ node scripts/publish-widget.mjs shopping       # guarded flow: add an agent-desi
 | Surface | Review evidence |
 | --- | --- |
 | Dashboard (phone/desktop) | Playwright screenshots per profile + overflow/runtime/interaction diagnostics, bound to the exact draft version; publish is gated on the review |
-| Launcher widget | **Not** part of the screenshot review (a browser screenshot cannot validate a native widget). Covered by design-time widget-spec validation plus native Glance widget tests in CI; a pixel-level widget review needs a native renderer worker |
+| Launcher widget | Reviewed **natively** when a widget renderer is attached (`VELLUM_WIDGET_RENDERER_CMD` → `scripts/render-widget-previews.sh`): the real Glance widget is rendered to PNGs at launcher sizes, attached to the review (so `dashboard_preview` returns them as images), and a failed render blocks publication. Without a renderer the review records an explicit `widget_preview_unavailable` warning. Also covered by design-time widget-spec validation and native Glance widget tests |
 
 ## Security notes
 
