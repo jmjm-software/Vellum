@@ -28,6 +28,8 @@ export interface RenderSpec {
   datasets: Dataset[];
   target: TargetKind;
   profile: string;
+  /** assetId -> inlined data: URL so screenshots contain the real image. */
+  assets?: Record<string, string>;
 }
 
 export interface ProfileResult {
@@ -76,6 +78,62 @@ function walk(node: ComponentNode | undefined, fn: (n: ComponentNode) => void): 
   if (!node) return;
   fn(node);
   for (const child of node.children ?? []) walk(child, fn);
+}
+
+/** Every asset id referenced by image components (main tree and widget spec). */
+export function collectAssetIds(content: DesignContent): string[] {
+  const ids = new Set<string>();
+  walk(content.root, (node) => {
+    if (node.type === "image") {
+      const assetId = (node.props ?? {})["assetId"];
+      if (typeof assetId === "string" && assetId.length > 0) ids.add(assetId);
+    }
+  });
+  for (const component of content.widget?.components ?? []) {
+    if (component.kind === "image" && component.assetId) ids.add(component.assetId);
+  }
+  return [...ids];
+}
+
+/**
+ * Fetch uploaded assets and inline them as data: URLs. Previews must not hit
+ * the network while rendering (the sandbox renders one self-contained spec),
+ * but a screenshot with placeholder boxes is useless evidence — so the bytes
+ * are embedded before rendering.
+ */
+export async function inlineAssets(
+  serverUrl: string,
+  token: string,
+  assetIds: string[]
+): Promise<{ assets: Record<string, string>; diagnostics: Diagnostic[] }> {
+  const assets: Record<string, string> = {};
+  const diagnostics: Diagnostic[] = [];
+  const origin = new URL(serverUrl).origin;
+  for (const assetId of assetIds) {
+    try {
+      const res = await fetch(`${origin}/api/assets/${encodeURIComponent(assetId)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) {
+        diagnostics.push({
+          severity: "warning",
+          code: "asset_unavailable",
+          message: `image asset "${assetId}" could not be loaded (HTTP ${res.status})`
+        });
+        continue;
+      }
+      const mime = res.headers.get("content-type") ?? "image/png";
+      const bytes = Buffer.from(await res.arrayBuffer());
+      assets[assetId] = `data:${mime};base64,${bytes.toString("base64")}`;
+    } catch (err) {
+      diagnostics.push({
+        severity: "warning",
+        code: "asset_unavailable",
+        message: `image asset "${assetId}" could not be loaded: ${err instanceof Error ? err.message : String(err)}`
+      });
+    }
+  }
+  return { assets, diagnostics };
 }
 
 /**
@@ -284,7 +342,8 @@ export async function runAllProfiles(
   artifactDir: string,
   content: DesignContent,
   datasets: Dataset[],
-  profiles: TargetProfile[]
+  profiles: TargetProfile[],
+  assets: Record<string, string> = {}
 ): Promise<ProfileResult[]> {
   const checklistTargets = findChecklistTargets(content, datasets);
   const results: ProfileResult[] = [];
@@ -296,7 +355,8 @@ export async function runAllProfiles(
         content,
         datasets,
         target: profile.target,
-        profile: profile.name
+        profile: profile.name,
+        assets
       };
       try {
         results.push(

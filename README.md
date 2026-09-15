@@ -21,7 +21,7 @@ contracts.
 | --- | --- |
 | `packages/core` | Domain types, component catalogue, validation, patch ops, wire protocol |
 | `packages/server` | SQLite persistence, app functions, MCP server (stdio), HTTP API + SSE, auth, preview job queue |
-| `packages/renderer` | Shared React renderer for design documents + datasets |
+| `packages/renderer` | Shared React renderer for design documents + datasets (incl. external links and clickable images) |
 | `packages/web` | Browser client + isolated `/preview.html` render surface |
 | `packages/cli` | Terminal client: status, data, events, history, rollback |
 | `packages/preview-worker` | Playwright worker: screenshots, diagnostics, interaction tests |
@@ -36,7 +36,7 @@ Work in progress. Implemented and covered by the e2e acceptance suite today:
 
 - Component catalogue + validated agent-authored design documents (drafts, reviews, publications)
 - Guarded preview-to-publish loop with Playwright screenshots and diagnostics
-- MCP stdio server (six tools), HTTP client API + SSE, token-separated auth
+- MCP stdio server (seven tools incl. `dashboard_asset`), HTTP client API + SSE, token-separated auth
 - Shared React renderer (web + isolated preview surface), CLI, container image + CI
 
 Not started / planned (see `android/README.md` and `architecture.md`):

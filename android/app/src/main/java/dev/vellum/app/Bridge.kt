@@ -10,12 +10,15 @@ import org.json.JSONObject
  *       reach the server; enqueue locally, replay on reconnect.
  *   { "type": "cacheState", "json": <state json> }            — keep the
  *       offline snapshot fresh from the page's own successful fetches.
+ *   { "type": "openUrl", "href": <http(s) url> }              — open an external
+ *       page in the platform browser (dashboard content never navigates itself).
  *   { "type": "ready" }                                       — page mounted.
  */
 class Bridge(private val host: Host) {
     interface Host {
         fun onQueuedAction(idempotencyKey: String, body: String)
         fun onCacheState(json: String)
+        fun onOpenUrl(href: String)
         fun onPageReady()
     }
 
@@ -31,6 +34,7 @@ class Bridge(private val host: Host) {
                     host.onQueuedAction(key, body)
                 }
                 "cacheState" -> msg.optString("json").takeIf { it.isNotBlank() }?.let { host.onCacheState(it) }
+                "openUrl" -> msg.optString("href").takeIf { it.isNotBlank() }?.let { host.onOpenUrl(it) }
                 "ready" -> host.onPageReady()
             }
         }

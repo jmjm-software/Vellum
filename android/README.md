@@ -8,7 +8,7 @@ Glance launcher widget rendering the agent-designed `WidgetSpec` compact present
 | Piece | Behavior |
 | --- | --- |
 | `MainActivity` | WebView shell: loads the configured server, injects the client token into `localStorage.vellum_client_token` (the web client's existing transport), deep link `vellum://dashboard`, options menu (refresh/settings) |
-| `VellumWebViewClient` | Online: pass-through (page fetches with its own token). Offline: serves the cached web bundle + cached `/api/state` tagged `X-Vellum-Offline: 1` (web client shows the stale banner); other APIs 503 |
+| `VellumWebViewClient` | Online: pass-through (page fetches with its own token). Offline: serves the cached web bundle + cached `/api/state` tagged `X-Vellum-Offline: 1` (web client shows the stale banner); other APIs 503. Also a navigation safety net: any URL outside the dashboard origin opens in the system browser instead of replacing the token-bearing page |
 | `Bridge` | The **only** JS surface, one method `postMessage`: `queueAction` (offline action queue, replayed on reconnect — server dedupes by idempotencyKey), `cacheState`, `ready`. No broad WebView bridge (§10). |
 | `ShellStore` | Disk caches: web bundle (primed from `index.html` + hashed assets after first load), last `/api/state` payload, offline action queue |
 | `NetworkMonitor` | Available/lost transitions → flush queue + `vellum:refresh` event + reload |
@@ -16,6 +16,7 @@ Glance launcher widget rendering the agent-designed `WidgetSpec` compact present
 | `WidgetUpdateWorker` | Periodic (15 min) + on-foreground refresh of the widget snapshot + asset prefetch |
 | `VellumWidget` | Native Glance renderer for `WidgetSpec`: text (title/caption/body), metric, list (filter `unchecked`, `maxItems`, remaining count), progress (block bar), image (cached asset), action buttons. **Flexible sizing**: item budget adapts to `LocalSize` (launchers disagree about cell sizes). **Live**: while the app is in use, every state refresh the web client performs is reported over the bridge and the widget re-renders immediately (`WidgetRenderWorker`, no network). **Starter fallback**: when the published design carries no `WidgetSpec`, the widget synthesizes a conservative presentation from the first list/metric dataset (title + list with remaining count, or metric) + open-dashboard action — so the launcher widget is useful on any dashboard until an agent designs one. |
 | `PerformToggle`/`PerformEvent` | Widget actions → the same `/api/actions` endpoint as the web client (dashboard-owned = apply locally; mirrored = harness event). Never a model call. |
+| `ExternalLinks` | Opens `link` components and `openUrl` actions (from the dashboard or the widget) in the platform browser. Re-validates http(s)-only, no credentials, no `javascript:`/`data:`/`file:`/`intent:` schemes — agent-authored links are untrusted input (§10). |
 
 The server needs **no changes** to support this: `/api/state` already carries the publication
 (including `widget`) + datasets, and `/api/assets/:id` serves images.

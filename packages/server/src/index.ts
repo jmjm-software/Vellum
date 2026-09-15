@@ -16,6 +16,7 @@ import { requireAgentToken, requireClientOrAgentToken, requireClientToken } from
 import { sseManager } from "./sse.js";
 import { CATALOGUE_VERSION, RENDERER_VERSION } from "@vellum/core/types.js";
 import type {
+  AssetArgs,
   ContextArgs,
   DataArgs,
   EditArgs,
@@ -269,6 +270,7 @@ app.post("/api/agent/publish", requireAgentToken, wrap((req) => {
   return service.publish(body as PublishArgs);
 }));
 app.post("/api/agent/data", requireAgentToken, wrap((req) => service.data((req.body ?? {}) as DataArgs)));
+app.post("/api/agent/assets", requireAgentToken, wrap((req) => service.assets((req.body ?? {}) as AssetArgs)));
 app.post("/api/agent/events", requireAgentToken, wrap((req) => service.events((req.body ?? {}) as EventsArgs)));
 
 app.post(

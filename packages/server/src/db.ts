@@ -104,6 +104,7 @@ db.exec(`
     id TEXT PRIMARY KEY,
     data BLOB NOT NULL,
     mimeType TEXT NOT NULL,
+    filename TEXT,
     createdAt INTEGER NOT NULL
   );
 
@@ -125,6 +126,12 @@ db.exec(`
 const seedMeta = db.prepare(`INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)`);
 seedMeta.run("current_revision", "0");
 seedMeta.run("format_version", "1");
+
+// Lightweight migrations (databases created by earlier versions).
+const assetColumns = db.prepare("PRAGMA table_info(assets)").all() as { name: string }[];
+if (!assetColumns.some((c) => c.name === "filename")) {
+  db.exec("ALTER TABLE assets ADD COLUMN filename TEXT");
+}
 
 export function getMeta(key: string): string | null {
   const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined;

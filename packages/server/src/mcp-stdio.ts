@@ -24,6 +24,7 @@ import { AUTHORING_GUIDANCE } from "@vellum/core";
 import { MCP_TOOL_NAMES } from "@vellum/core/protocol.js";
 import { zDatasetSchema, zDesignPatch } from "@vellum/core/validate.js";
 import type {
+  AssetArgs,
   ContextArgs,
   DataArgs,
   EditArgs,
@@ -112,6 +113,20 @@ const dataSchema = {
   patch: z.object({ label: z.string().optional(), done: z.boolean().optional() }).optional().describe("For patchItem."),
   expectedVersion: z.number().int().optional().describe("Optimistic concurrency on the dataset version."),
   source: z.string().optional().describe("For update: provenance note.")
+};
+
+const assetSchema = {
+  op: z.enum(["list", "upload", "get", "delete"]),
+  assetId: z.string().optional().describe("For get/delete."),
+  filename: z.string().max(200).optional().describe("For upload: original filename (metadata only)."),
+  mimeType: z
+    .enum(["image/png", "image/jpeg", "image/webp", "image/gif"])
+    .optional()
+    .describe("For upload: raster image type. SVG and remote URLs are not accepted."),
+  dataBase64: z
+    .string()
+    .optional()
+    .describe("For upload: raw base64 image bytes (no data: prefix). Max 5 MB, magic-byte checked against mimeType.")
 };
 
 const eventsSchema = {
@@ -253,6 +268,13 @@ register(
   "Dataset CRUD: list / get / create / update (full value) / patchItem (single list item). Data changes NEVER require a redesign, preview, or publish — they go live immediately (dashboard-owned) or become pending harness events (mirrored). Validated against the dataset schema with optimistic version concurrency.",
   dataSchema,
   (args) => jsonResult(service.data(args as unknown as DataArgs))
+);
+
+register(
+  "dashboard_asset",
+  "Uploaded, access-controlled images for image components. Upload raster bytes (png/jpeg/webp/gif, ≤5 MB, base64) and reference the returned asset id from an image component's assetId. list/get/delete manage existing assets. Always preview the draft afterwards so the screenshot (which contains the real image) is inspected before publishing.",
+  assetSchema,
+  (args) => jsonResult(service.assets(args as unknown as AssetArgs))
 );
 
 register(

@@ -8,6 +8,7 @@ import {
   COMPONENT_SCHEMAS,
   CONTAINERS,
   DATASET_BOUND,
+  zSafeUrl,
   type ComponentType
 } from "./catalog.js";
 import {
@@ -48,13 +49,15 @@ const zWidgetComponent: z.ZodType<unknown> = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("list"), dataset: z.string(), maxItems: z.number().int().min(1).max(10), filter: z.enum(["unchecked", "all"]).optional(), showRemainingCount: z.boolean().optional() }),
   z.object({ kind: z.literal("progress"), dataset: z.string(), label: z.string().max(80).optional() }),
   z.object({ kind: z.literal("image"), assetId: z.string().regex(idRe), alt: z.string().max(200).optional() }),
+  z.object({ kind: z.literal("link"), label: z.string().max(80), href: zSafeUrl }),
   z.object({
     kind: z.literal("action"),
     label: z.string().max(80),
     action: z.discriminatedUnion("kind", [
       z.object({ kind: z.literal("toggleItem"), dataset: z.string(), itemId: z.string() }),
       z.object({ kind: z.literal("event"), type: z.string().regex(/^[a-zA-Z0-9_.:-]{1,100}$/), payload: z.record(z.unknown()).optional() }),
-      z.object({ kind: z.literal("openDashboard") })
+      z.object({ kind: z.literal("openDashboard") }),
+      z.object({ kind: z.literal("openUrl"), href: zSafeUrl })
     ])
   })
 ]);
@@ -92,6 +95,8 @@ export interface ValidateDesignOptions {
   knownDatasets?: Set<string>;
   /** Dataset schemas keyed by id, for field-level binding validation. */
   datasetSchemas?: Record<string, DatasetSchema>;
+  /** Uploaded asset ids known to exist (for image binding checks). */
+  knownAssets?: Set<string>;
 }
 
 /** Full structural + semantic validation of a design document. */
@@ -161,6 +166,17 @@ export function validateDesign(input: unknown, opts: ValidateDesignOptions = {})
             declared.add(action.dataset);
           }
         }
+        if (node.type === "image" && opts.knownAssets) {
+          const assetId = String(props["assetId"] ?? "");
+          if (!opts.knownAssets.has(assetId)) {
+            diagnostics.push({
+              severity: "error",
+              code: "unknown_asset",
+              message: `image "${node.id}" references unknown asset "${assetId}" — upload it with dashboard_asset first`,
+              componentId: node.id
+            });
+          }
+        }
       }
     }
 
@@ -179,6 +195,17 @@ export function validateDesign(input: unknown, opts: ValidateDesignOptions = {})
   // Widget bindings count as declared too.
   if (content.widget) {
     for (const ds of content.widget.datasets) declared.add(ds);
+    if (opts.knownAssets) {
+      for (const component of content.widget.components) {
+        if (component.kind === "image" && !opts.knownAssets.has(component.assetId)) {
+          diagnostics.push({
+            severity: "error",
+            code: "unknown_asset",
+            message: `widget image references unknown asset "${component.assetId}" — upload it with dashboard_asset first`
+          });
+        }
+      }
+    }
   }
 
   // Declared datasets list vs actual bindings.

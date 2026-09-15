@@ -27,6 +27,8 @@ import type {
   PublishResult,
   DataArgs,
   DataResult,
+  AssetArgs,
+  AssetResult,
   EventsArgs,
   EventsResult,
   SubmitActionRequest,
@@ -46,13 +48,58 @@ import type {
   ReviewRecord,
   ActionStatus,
   ActionEvent,
+  AssetInfo,
 } from "@vellum/core/types.js";
+import { ASSET_LIMITS } from "@vellum/core/types.js";
 import { sseManager } from "./sse.js";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 
 function genId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Asset helpers (§10)
+// ---------------------------------------------------------------------------
+
+interface AssetRow {
+  id: string;
+  mimeType: string;
+  bytes: number;
+  filename: string | null;
+  createdAt: number;
+}
+
+function toAssetInfo(row: AssetRow): AssetInfo {
+  return {
+    id: row.id,
+    mimeType: row.mimeType,
+    bytes: row.bytes,
+    filename: row.filename ?? undefined,
+    createdAt: row.createdAt,
+    url: `/api/assets/${row.id}`,
+  };
+}
+
+/** Magic-byte check: the declared mime type must match the actual payload. */
+function matchesMagic(buf: Buffer, mime: string): boolean {
+  switch (mime) {
+    case "image/png":
+      return buf.length > 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+    case "image/jpeg":
+      return buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+    case "image/gif":
+      return buf.length > 6 && buf.subarray(0, 3).toString("ascii") === "GIF";
+    case "image/webp":
+      return (
+        buf.length > 12 &&
+        buf.subarray(0, 4).toString("ascii") === "RIFF" &&
+        buf.subarray(8, 12).toString("ascii") === "WEBP"
+      );
+    default:
+      return false;
+  }
 }
 
 class AppError extends Error {
@@ -210,6 +257,11 @@ export class AppService {
     return out;
   }
 
+  private knownAssets(): Set<string> {
+    const rows = db.prepare("SELECT id FROM assets").all() as { id: string }[];
+    return new Set(rows.map((r) => r.id));
+  }
+
   private getAllDatasets(): Dataset[] {
     const rows = db.prepare("SELECT * FROM datasets").all() as {
       id: string;
@@ -314,7 +366,7 @@ export class AppService {
       throw new AppError("validation_failed", err instanceof Error ? err.message : String(err));
     }
 
-    const validation = validateDesign(nextContent, { knownDatasets: known, datasetSchemas: schemas });
+    const validation = validateDesign(nextContent, { knownDatasets: known, datasetSchemas: schemas, knownAssets: this.knownAssets() });
     const nextVersion = draft.version + 1;
 
     db.prepare(
@@ -342,7 +394,7 @@ export class AppService {
     }
 
     const content = JSON.parse(draftRow.content) as DesignContent;
-    const invalid = validateDesign(content, { knownDatasets: this.knownDatasets(), datasetSchemas: this.datasetSchemas() });
+    const invalid = validateDesign(content, { knownDatasets: this.knownDatasets(), datasetSchemas: this.datasetSchemas(), knownAssets: this.knownAssets() });
     if (invalid.content === null) {
       throw new AppError(
         "validation_failed",
@@ -417,7 +469,7 @@ export class AppService {
 
     const content = JSON.parse(draftRow.content) as DesignContent;
     // Defense in depth: never publish an invalid design even if a review exists.
-    const invalid = validateDesign(content, { knownDatasets: this.knownDatasets(), datasetSchemas: this.datasetSchemas() });
+    const invalid = validateDesign(content, { knownDatasets: this.knownDatasets(), datasetSchemas: this.datasetSchemas(), knownAssets: this.knownAssets() });
     if (invalid.content === null) {
       throw new AppError("validation_failed", "Draft design is invalid; repair it and re-review before publishing");
     }
@@ -591,6 +643,78 @@ export class AppService {
         }
       }
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Assets (§10: uploaded, access-controlled; arbitrary remote URLs rejected)
+  // -------------------------------------------------------------------------
+
+  assets(args: AssetArgs): AssetResult {
+    switch (args.op) {
+      case "list": {
+        const rows = db
+          .prepare("SELECT id, mimeType, length(data) AS bytes, filename, createdAt FROM assets ORDER BY createdAt DESC")
+          .all() as AssetRow[];
+        return { op: "list", assets: rows.map(toAssetInfo) };
+      }
+      case "get": {
+        const row = this.getAssetRow(args.assetId);
+        return { op: "get", asset: toAssetInfo(row) };
+      }
+      case "upload": {
+        const mime = String(args.mimeType ?? "").trim().toLowerCase();
+        if (!(ASSET_LIMITS.mimeTypes as readonly string[]).includes(mime)) {
+          throw new AppError(
+            "validation_failed",
+            `Unsupported mime type "${mime || "(missing)"}". Allowed: ${ASSET_LIMITS.mimeTypes.join(", ")}`
+          );
+        }
+        const raw = String(args.dataBase64 ?? "").replace(/\s+/g, "");
+        if (raw.length === 0) throw new AppError("validation_failed", "dataBase64 is required");
+        if (raw.length > Math.ceil((ASSET_LIMITS.maxBytes * 4) / 3) + 1024) {
+          throw new AppError("validation_failed", `Asset exceeds ${ASSET_LIMITS.maxBytes} bytes`);
+        }
+        if (!/^[A-Za-z0-9+/]+={0,2}$/.test(raw)) {
+          throw new AppError("validation_failed", "dataBase64 is not valid base64");
+        }
+        const buf = Buffer.from(raw, "base64");
+        if (buf.length === 0) throw new AppError("validation_failed", "asset payload is empty");
+        if (buf.length > ASSET_LIMITS.maxBytes) {
+          throw new AppError("validation_failed", `Asset exceeds ${ASSET_LIMITS.maxBytes} bytes`);
+        }
+        // The declared type must match the payload: no polyglot uploads.
+        if (!matchesMagic(buf, mime)) {
+          throw new AppError("validation_failed", `Payload does not look like ${mime}`);
+        }
+        const id = genId("asset");
+        const now = Date.now();
+        const filename = typeof args.filename === "string" ? args.filename.slice(0, 200) : null;
+        db.prepare("INSERT INTO assets (id, data, mimeType, filename, createdAt) VALUES (?, ?, ?, ?, ?)").run(
+          id,
+          buf,
+          mime,
+          filename,
+          now
+        );
+        return {
+          op: "upload",
+          asset: toAssetInfo({ id, mimeType: mime, bytes: buf.length, filename, createdAt: now }),
+          nextStep: `Reference it from an image component: { op: "updateProps", id: "<image component id>", props: { assetId: "${id}", alt: "..." } } (image props: assetId, alt?, fit?, optional action such as { kind: "openUrl", href }), then dashboard_preview this draft version before publishing.`,
+        };
+      }
+      case "delete": {
+        const res = db.prepare("DELETE FROM assets WHERE id = ?").run(args.assetId);
+        return { op: "delete", assetId: args.assetId, deleted: res.changes > 0 };
+      }
+    }
+  }
+
+  private getAssetRow(assetId: string): AssetRow {
+    const row = db
+      .prepare("SELECT id, mimeType, length(data) AS bytes, filename, createdAt FROM assets WHERE id = ?")
+      .get(assetId) as AssetRow | undefined;
+    if (!row) throw new AppError("not_found", `Asset "${assetId}" not found`);
+    return row;
   }
 
   events(args: EventsArgs): EventsResult {
@@ -856,7 +980,7 @@ export class AppService {
     if (!row) throw new AppError("not_found", `Revision ${args.revision} not found`);
 
     const pub = parsePublication(row);
-    const validation = validateDesign(pub.content, { knownDatasets: this.knownDatasets(), datasetSchemas: this.datasetSchemas() });
+    const validation = validateDesign(pub.content, { knownDatasets: this.knownDatasets(), datasetSchemas: this.datasetSchemas(), knownAssets: this.knownAssets() });
     if (validation.content === null) {
       throw new AppError("validation_failed", "Historic design no longer validates against current datasets: " + validation.diagnostics.map((d) => d.message).join("; "));
     }

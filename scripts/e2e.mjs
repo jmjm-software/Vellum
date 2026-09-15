@@ -102,6 +102,41 @@ async function main() {
   });
   check("create mirrored dataset", power.status === 200, power.json);
 
+  // --- assets: uploaded, access-controlled images -------------------------
+  const ONE_PIXEL_PNG =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==";
+  const upload = await agent("POST", "/api/agent/assets", {
+    op: "upload",
+    filename: "pixel.png",
+    mimeType: "image/png",
+    dataBase64: ONE_PIXEL_PNG
+  });
+  const assetId = upload.json?.asset?.id;
+  check("asset upload accepted", upload.status === 200 && /^asset_[a-zA-Z0-9_]+$/.test(assetId ?? ""), upload.json);
+
+  const assetList = await agent("POST", "/api/agent/assets", { op: "list" });
+  check("asset listed", Array.isArray(assetList.json?.assets) && assetList.json.assets.some((a) => a.id === assetId));
+
+  const assetFetch = await fetch(`${SERVER}/api/assets/${assetId}`, { headers: { authorization: `Bearer ${CLIENT_TOKEN}` } });
+  check(
+    "client can fetch uploaded asset bytes",
+    assetFetch.status === 200 && (assetFetch.headers.get("content-type") ?? "").startsWith("image/png")
+  );
+
+  const badMagic = await agent("POST", "/api/agent/assets", {
+    op: "upload",
+    mimeType: "image/png",
+    dataBase64: Buffer.from("definitely not a png").toString("base64")
+  });
+  check("asset with mismatched payload rejected", badMagic.status >= 400, badMagic.status);
+
+  const badMime = await agent("POST", "/api/agent/assets", {
+    op: "upload",
+    mimeType: "image/svg+xml",
+    dataBase64: Buffer.from("<svg/>").toString("base64")
+  });
+  check("non-raster asset type rejected", badMime.status >= 400, badMime.status);
+
   // --- draft edit -----------------------------------------------------------
   const edit1 = await agent("POST", "/api/agent/edit", {
     base: "blank",
@@ -118,7 +153,21 @@ async function main() {
             ] },
             { id: "power-card", type: "card", props: { title: "Power now" }, children: [
               { id: "power-metric", type: "metric", props: { dataset: "power", field: "watts", unit: "W" } }
-            ] }
+            ] },
+            {
+              id: "resources-panel",
+              type: "card",
+              props: { title: "Resources" },
+              children: [
+                { id: "docs-link", type: "link", props: { label: "Energy guide", href: "https://example.com/energy", description: "External page opens in the browser" } },
+                {
+                  id: "logo-image",
+                  type: "image",
+                  props: { assetId, alt: "Uploaded logo", fit: "contain", action: { kind: "openUrl", href: "https://example.com/logo" } }
+                },
+                { id: "docs-button", type: "button", props: { label: "Open guide", variant: "secondary", action: { kind: "openUrl", href: "https://example.com/guide" } } }
+              ]
+            }
           ]
         }
       },
@@ -129,6 +178,8 @@ async function main() {
           components: [
             { kind: "text", text: "Shopping", emphasis: "title" },
             { kind: "list", dataset: "shopping", maxItems: 4, filter: "unchecked", showRemainingCount: true },
+            { kind: "link", label: "Energy guide", href: "https://example.com/energy" },
+            { kind: "image", assetId, alt: "Uploaded logo" },
             { kind: "action", label: "Open dashboard", action: { kind: "openDashboard" } }
           ],
           datasets: ["shopping"]
@@ -149,6 +200,23 @@ async function main() {
   const wd = await agent("POST", "/api/agent/context", { includeDesign: true });
   const wdWidget = wd.json?.draft?.content?.widget;
   check("design includes a widget spec", !!wdWidget && wdWidget.components?.length >= 2, wdWidget);
+
+  // links / images survive validation (unsafe URLs and unknown assets do not)
+  const badLink = await agent("POST", "/api/agent/edit", {
+    base: "blank",
+    patches: [
+      { op: "replaceRoot", root: { id: "root", type: "section", props: {}, children: [{ id: "bad-link", type: "link", props: { label: "click", href: "javascript:alert(1)" } }] } }
+    ]
+  });
+  check("javascript: link rejected", badLink.json?.valid === false || badLink.status >= 400, badLink.json?.diagnostics);
+
+  const unknownAsset = await agent("POST", "/api/agent/edit", {
+    base: "blank",
+    patches: [
+      { op: "replaceRoot", root: { id: "root", type: "section", props: {}, children: [{ id: "img", type: "image", props: { assetId: "asset_does_not_exist" } }] } }
+    ]
+  });
+  check("image with unknown asset rejected", unknownAsset.json?.valid === false || unknownAsset.status >= 400, unknownAsset.json?.diagnostics);
 
   // invalid design rejected (isolated in its own draft so the main draft stays valid)
   const badEdit = await agent("POST", "/api/agent/edit", {
@@ -201,6 +269,11 @@ async function main() {
     check("review produced screenshots", Array.isArray(review.screenshots) && review.screenshots.length > 0, review.screenshots?.length);
     check("review bound to exact draft version", review.draftId === draftId, review.draftId);
     check("review has status", ["passed", "passed_with_warnings", "failed"].includes(review.status), review.status);
+    check(
+      "preview inlined the uploaded asset (no asset_unavailable diagnostic)",
+      !(review.diagnostics ?? []).some((d) => d.code === "asset_unavailable"),
+      review.diagnostics
+    );
 
     if (review.status !== "failed") {
       const pub = await agent("POST", "/api/agent/publish", {
@@ -248,6 +321,12 @@ async function main() {
       const state1 = await req("GET", "/api/state");
       check("client state includes publication", !!state1.json?.publication, state1.json?.publication?.revision);
       check("client state includes datasets", Array.isArray(state1.json?.datasets) && state1.json.datasets.length >= 2);
+
+      const publishedJson = JSON.stringify(state1.json?.publication?.content ?? {});
+      check(
+        "published design carries link, image and openUrl action",
+        publishedJson.includes('"link"') && publishedJson.includes('"image"') && publishedJson.includes('openUrl')
+      );
     } else {
       console.log("  ..   review failed; skipping publish-dependent checks");
     }

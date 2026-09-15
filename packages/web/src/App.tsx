@@ -190,6 +190,20 @@ export default function App() {
 
   const handleAction = useCallback(
     async (action: ActionSpec, ctx: { componentId: string }) => {
+      // External links: never navigate the dashboard itself. On Android the
+      // shell opens the system browser (bridge); in a browser we open a tab.
+      if (action.kind === 'openUrl') {
+        const href = action.href;
+        if (!/^https?:\/\//i.test(href)) return; // defence in depth (server validated too)
+        const bridge = (window as unknown as { VellumBridge?: { postMessage: (s: string) => void } }).VellumBridge;
+        if (bridge) {
+          bridge.postMessage(JSON.stringify({ type: 'openUrl', href }));
+        } else {
+          window.open(href, '_blank', 'noopener,noreferrer');
+        }
+        return;
+      }
+
       const idKey = `${ctx.componentId}:${action.kind}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
       const body: SubmitActionRequest = {
         type:

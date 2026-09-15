@@ -6,6 +6,7 @@
 import type {
   ActionEvent,
   ActionStatus,
+  AssetInfo,
   DashboardState,
   Dataset,
   DatasetDefinition,
@@ -30,6 +31,7 @@ export const MCP_TOOL_NAMES = [
   "dashboard_preview",
   "dashboard_publish",
   "dashboard_data",
+  "dashboard_asset",
   "dashboard_events"
 ] as const;
 
@@ -149,6 +151,23 @@ export type EventsResult =
   | { op: "submit"; event: ActionEvent };
 
 // ---------------------------------------------------------------------------
+// Assets (uploaded, access-controlled images; §10)
+// ---------------------------------------------------------------------------
+
+export type AssetArgs =
+  | { op: "list" }
+  /** Upload a raster image. `dataBase64` is raw base64 (no data: prefix). */
+  | { op: "upload"; filename?: string; mimeType: string; dataBase64: string }
+  | { op: "get"; assetId: string }
+  | { op: "delete"; assetId: string };
+
+export type AssetResult =
+  | { op: "list"; assets: AssetInfo[] }
+  | { op: "upload"; asset: AssetInfo; nextStep: string }
+  | { op: "get"; asset: AssetInfo }
+  | { op: "delete"; assetId: string; deleted: boolean };
+
+// ---------------------------------------------------------------------------
 // HTTP client API (web / Android / CLI all use these)
 // ---------------------------------------------------------------------------
 
@@ -167,6 +186,7 @@ export const HTTP_ROUTES = {
   agentPreview: "POST /api/agent/preview",
   agentPublish: "POST /api/agent/publish",
   agentData: "POST /api/agent/data",
+  agentAsset: "POST /api/agent/assets",
   agentEvents: "POST /api/agent/events"
 } as const;
 

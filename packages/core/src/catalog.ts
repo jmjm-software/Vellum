@@ -4,8 +4,15 @@
  * Each component has a zod schema — validation is enforced server-side (§10).
  */
 import { z } from "zod";
+import { isSafeHttpUrl } from "./url.js";
 
 const idRe = /^[a-zA-Z0-9_-]{1,64}$/;
+
+/** http(s) only, no credentials, bounded length — see url.ts. */
+export const zSafeUrl = z
+  .string()
+  .max(2000)
+  .refine(isSafeHttpUrl, { message: "must be an http(s) URL without credentials" });
 
 export const zActionSpec: z.ZodType<unknown> = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("toggleItem"), dataset: z.string(), itemId: z.string() }),
@@ -14,7 +21,8 @@ export const zActionSpec: z.ZodType<unknown> = z.discriminatedUnion("kind", [
     type: z.string().regex(/^[a-zA-Z0-9_.:-]{1,100}$/),
     payload: z.record(z.unknown()).optional()
   }),
-  z.object({ kind: z.literal("openDashboard") })
+  z.object({ kind: z.literal("openDashboard") }),
+  z.object({ kind: z.literal("openUrl"), href: zSafeUrl })
 ]);
 
 const zOverflow = z.enum(["showMore", "scroll", "paginate", "clip", "expand"]).default("showMore");
@@ -86,7 +94,16 @@ export const ContentComponents = {
     /** Uploaded, access-controlled asset id. Arbitrary remote URLs are prohibited (§10). */
     assetId: z.string().regex(idRe),
     alt: z.string().max(300).optional(),
-    fit: z.enum(["contain", "cover"]).default("contain")
+    fit: z.enum(["contain", "cover"]).default("contain"),
+    /** Optional click behavior (e.g. openUrl to view the full page). */
+    action: zActionSpec.optional()
+  }),
+  link: z.object({
+    label: z.string().max(300),
+    /** External page opened in the platform browser. http(s) only. */
+    href: zSafeUrl,
+    description: z.string().max(500).optional(),
+    style: z.enum(["body", "caption", "heading"]).default("body")
   }),
   button: z.object({
     label: z.string().max(120),
@@ -127,7 +144,9 @@ export function catalogueDescription(): string {
   lines.push(
     "Containers (grid, stack, section, card, tabs) accept children; content components do not.",
     "Responsive behavior: set per-target overrides (span/order/hidden/compact) instead of duplicating trees.",
-    "Text is plain text only. Images reference uploaded asset ids only. Actions are restricted to toggleItem/event/openDashboard."
+    "Text is plain text only. Images are uploaded assets (dashboard_asset tool) referenced by assetId — remote URLs are not allowed.",
+    "Links: the `link` component and the { kind: \"openUrl\", href } action open an external http(s) page in the platform browser; images accept an optional action to make them clickable.",
+    "Other actions are restricted to toggleItem / event / openDashboard."
   );
   return lines.join("\n");
 }

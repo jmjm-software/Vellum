@@ -1,7 +1,9 @@
 package dev.vellum.app.widget
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
@@ -18,6 +20,7 @@ import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.appwidget.action.actionStartActivity as actionStartActivityIntent
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.layout.Alignment
@@ -33,6 +36,7 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
+import dev.vellum.app.ExternalLinks
 import dev.vellum.app.MainActivity
 import dev.vellum.app.R
 import dev.vellum.app.ShellStore
@@ -148,6 +152,7 @@ private fun Render(component: WidgetComponentDto, state: StateDto, budget: Int) 
         "list" -> WidgetList(component, state, budget)
         "progress" -> WidgetProgress(component, state)
         "image" -> WidgetImage(component)
+        "link" -> WidgetLink(component)
         "action" -> WidgetAction(component)
         else -> Unit // unknown widget kinds render nothing (forward compat)
     }
@@ -261,6 +266,28 @@ private fun WidgetImage(component: WidgetComponentDto) {
 }
 
 @Composable
+private fun WidgetLink(component: WidgetComponentDto) {
+    val href = component.href ?: return
+    if (!ExternalLinks.isSafe(href)) return
+    Row(
+        modifier = GlanceModifier
+            .fillMaxWidth()
+            .clickable(
+                actionStartActivityIntent(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(href)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            )
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.Vertical.CenterVertically
+    ) {
+        Text(
+            text = (component.label ?: href) + " ↗",
+            style = TextStyle(color = ColorProvider(Color(0xFF8AB4F8)))
+        )
+    }
+}
+
+@Composable
 private fun WidgetAction(component: WidgetComponentDto) {
     val action = component.action ?: return
     val base = GlanceModifier
@@ -282,6 +309,14 @@ private fun WidgetAction(component: WidgetComponentDto) {
                 actionParametersOf(PerformEvent.KEY_TYPE to action.type.orEmpty())
             )
         )
+        "openUrl" -> {
+            val href = action.href.orEmpty()
+            if (!ExternalLinks.isSafe(href)) base else base.clickable(
+                actionStartActivityIntent(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(href)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            )
+        }
         else -> base
     }
     Row(modifier = modifier) {

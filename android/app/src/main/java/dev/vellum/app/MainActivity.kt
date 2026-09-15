@@ -132,6 +132,11 @@ class MainActivity : AppCompatActivity(), Bridge.Host {
         // nothing yet; hook for future native chrome
     }
 
+    /** External links open in the platform browser; the dashboard never navigates. */
+    override fun onOpenUrl(href: String) {
+        ExternalLinks.open(this, href)
+    }
+
     /** Replay offline actions (server dedupes by idempotencyKey), then refresh. */
     private fun flushQueueAndRefresh() {
         val pending = ShellStore.readQueue(this)

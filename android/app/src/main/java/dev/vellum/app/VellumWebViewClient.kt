@@ -67,6 +67,18 @@ class VellumWebViewClient(
         )
     }
 
+    /**
+     * Safety net: navigation the page attempts to somewhere other than the
+     * configured dashboard origin opens in the system browser instead of
+     * replacing the token-bearing dashboard page.
+     */
+    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+        val target = request?.url ?: return false
+        val dashboardHost = runCatching { java.net.URI(serverUrl).host }.getOrNull()
+        if (dashboardHost != null && target.host == dashboardHost) return false // in-dashboard navigation
+        return ExternalLinks.open(view?.context ?: context, target.toString())
+    }
+
     override fun onPageFinished(view: WebView?, url: String?) {
         super.onPageFinished(view, url)
         // Hand the page its transport credential (web client reads this key).

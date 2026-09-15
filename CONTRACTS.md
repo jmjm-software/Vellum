@@ -70,7 +70,7 @@ Entry points:
 - `src/index.ts` — HTTP server (express) on `$PORT` (default 8787): client API per
   `HTTP_ROUTES`, agent HTTP routes (same app functions), SSE stream (`publication`, `dataset`,
   `action` events), serves `packages/web/dist` statically at `/` if present.
-- `src/mcp-stdio.ts` — MCP stdio server exposing exactly the six `MCP_TOOL_NAMES` with
+- `src/mcp-stdio.ts` — MCP stdio server exposing exactly the `MCP_TOOL_NAMES` (seven: context/edit/preview/publish/data/asset/events) with
   `@modelcontextprotocol/sdk` (`McpServer` + `StdioServerTransport`), zod input schemas, and
   `dashboard_preview` returning image content blocks (base64 png) alongside structured JSON.
 - `src/mcp-http.ts` (optional stretch) — streamable HTTP transport mount.

@@ -48,6 +48,7 @@ data class WidgetComponentDto(
     val showRemainingCount: Boolean? = null,
     val assetId: String? = null,
     val alt: String? = null,
+    val href: String? = null,
     val action: WidgetActionDto? = null
 )
 
@@ -56,7 +57,8 @@ data class WidgetActionDto(
     val kind: String,
     val dataset: String? = null,
     val itemId: String? = null,
-    val type: String? = null
+    val type: String? = null,
+    val href: String? = null
 )
 
 @Serializable

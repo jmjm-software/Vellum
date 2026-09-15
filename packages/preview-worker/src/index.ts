@@ -42,9 +42,11 @@ import {
   type DatasetRow,
   type PreviewJobRow
 } from "./db.js";
-import { runAllProfiles } from "./render.js";
+import { runAllProfiles, collectAssetIds, inlineAssets } from "./render.js";
 
 const rendererUrl = process.env.VELLUM_RENDERER_URL ?? "http://localhost:8788";
+// Used only to read uploaded assets for inlining into preview specs.
+const clientToken = process.env.VELLUM_CLIENT_TOKEN ?? "client-dev-token";
 const pollIntervalMs = Number(process.env.VELLUM_POLL_INTERVAL_MS ?? 2000);
 const jobTimeoutMs = Number(process.env.VELLUM_JOB_TIMEOUT_MS ?? 240_000); // ~4 min
 
@@ -135,6 +137,14 @@ async function runJob(job: PreviewJobRow): Promise<void> {
 
   const reviewId = `review_${randomBytes(8).toString("hex")}`;
   const b = await getBrowser();
+  // Inline uploaded images so the reviewed screenshots contain the real asset
+  // bytes (previews render one self-contained spec; no network in the sandbox).
+  const assetIds = collectAssetIds(content);
+  const inlined =
+    assetIds.length > 0
+      ? await inlineAssets(rendererUrl, clientToken, assetIds)
+      : { assets: {} as Record<string, string>, diagnostics: [] as Diagnostic[] };
+
   const results = await runAllProfiles(
     b,
     rendererUrl,
@@ -142,10 +152,11 @@ async function runJob(job: PreviewJobRow): Promise<void> {
     artifactDir,
     content,
     datasets,
-    profiles
+    profiles,
+    inlined.assets
   );
 
-  const diagnostics: Diagnostic[] = [...profileDiagnostics];
+  const diagnostics: Diagnostic[] = [...profileDiagnostics, ...inlined.diagnostics];
   const screenshots: ReviewRecord["screenshots"] = [];
   for (const r of results) {
     diagnostics.push(...r.diagnostics);

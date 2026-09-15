@@ -14,6 +14,8 @@ interface RendererContextValue {
   onAction: (action: ActionSpec, ctx: { componentId: string }) => void;
   overrides: Map<string, { span?: number; order?: number; hidden?: boolean; compact?: boolean }>;
   preview: boolean;
+  /** assetId -> URL (in previews: inlined data: URLs so screenshots show the real image). */
+  assets: Map<string, string>;
 }
 
 const RendererContext = React.createContext<RendererContextValue>({
@@ -22,6 +24,7 @@ const RendererContext = React.createContext<RendererContextValue>({
   onAction: () => {},
   overrides: new Map(),
   preview: false,
+  assets: new Map(),
 });
 
 function useRenderer() {
@@ -85,6 +88,8 @@ function NodeRenderer({ node }: { node: ComponentNode }) {
       return <TextComponent node={node} compact={compact} />;
     case 'image':
       return <ImageComponent node={node} />;
+    case 'link':
+      return <LinkComponent node={node} />;
     case 'button':
       return <ButtonComponent node={node} />;
     default:
@@ -692,28 +697,76 @@ function ImageComponent({ node }: { node: ComponentNode }) {
     assetId: string;
     alt?: string;
     fit?: 'contain' | 'cover';
+    action?: ActionSpec;
   };
-  const { preview } = useRenderer();
+  const { preview, assets, onAction } = useRenderer();
   const fit = props.fit ?? 'contain';
-  if (preview) {
-    return (
-      <div
-        data-component-id={node.id}
-        className="vellum-image-placeholder"
-        style={{ objectFit: fit }}
-      >
-        Image
-      </div>
-    );
-  }
-  return (
+  const resolved = assets.get(props.assetId);
+  // In previews only inlined assets render (no network); otherwise the
+  // access-controlled endpoint serves the uploaded bytes.
+  const src = resolved ?? (preview ? undefined : `/api/assets/${props.assetId}`);
+
+  const body = src ? (
     <img
       data-component-id={node.id}
       className="vellum-image"
-      src={`/api/assets/${props.assetId}`}
+      src={src}
       alt={props.alt ?? ''}
       style={{ objectFit: fit }}
     />
+  ) : (
+    <div data-component-id={node.id} className="vellum-image-placeholder" style={{ objectFit: fit }}>
+      Image
+    </div>
+  );
+
+  // Images may carry a click behavior (e.g. view full size, open a page).
+  if (props.action) {
+    return (
+      <button
+        type="button"
+        className="vellum-image-button"
+        onClick={() => onAction(props.action!, { componentId: node.id })}
+        aria-label={props.alt ?? 'image action'}
+      >
+        {body}
+      </button>
+    );
+  }
+  return body;
+}
+
+/**
+ * External link. Rendered as a button, never a raw anchor: the client decides
+ * how to open the URL (system browser on Android, new tab on web), so previews
+ * and the WebView shell never navigate away on their own. http(s) only — the
+ * href was validated server-side against a scheme allowlist.
+ */
+function LinkComponent({ node }: { node: ComponentNode }) {
+  const props = (node.props ?? {}) as {
+    label: string;
+    href: string;
+    description?: string;
+    style?: 'body' | 'caption' | 'heading';
+  };
+  const { onAction } = useRenderer();
+  const style = props.style ?? 'body';
+  return (
+    <div data-component-id={node.id} className={`vellum-link vellum-text-${style}`}>
+      <button
+        type="button"
+        className="vellum-link-target"
+        onClick={() => onAction({ kind: 'openUrl', href: props.href }, { componentId: node.id })}
+        title={props.href}
+      >
+        {props.label}
+        <span className="vellum-link-external" aria-hidden="true">
+          {' '}
+          ↗
+        </span>
+      </button>
+      {props.description ? <div className="vellum-link-description">{props.description}</div> : null}
+    </div>
   );
 }
 
@@ -743,6 +796,8 @@ export interface DashboardRendererProps {
   onAction: (action: ActionSpec, ctx: { componentId: string }) => void;
   width?: number;
   preview?: boolean;
+  /** assetId -> URL (previews pass inlined data: URLs so screenshots show images). */
+  assets?: Record<string, string>;
 }
 
 export function DashboardRenderer({
@@ -752,6 +807,7 @@ export function DashboardRenderer({
   onAction,
   width,
   preview = false,
+  assets,
 }: DashboardRendererProps) {
   const overrides = useMemo(() => {
     const map = new Map<
@@ -771,9 +827,11 @@ export function DashboardRenderer({
     return map;
   }, [datasets]);
 
+  const assetMap = useMemo(() => new Map(Object.entries(assets ?? {})), [assets]);
+
   return (
     <RendererContext.Provider
-      value={{ datasets: dsMap, target, onAction, overrides, preview }}
+      value={{ datasets: dsMap, target, onAction, overrides, preview, assets: assetMap }}
     >
       <div
         className="vellum-root"

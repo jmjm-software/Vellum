@@ -105,13 +105,16 @@ export type WidgetComponent =
   | { kind: "list"; dataset: ID; maxItems: number; filter?: "unchecked" | "all"; showRemainingCount?: boolean }
   | { kind: "progress"; dataset: ID; label?: string }
   | { kind: "image"; assetId: string; alt?: string }
+  | { kind: "link"; label: string; href: string }
   | { kind: "action"; label: string; action: ActionSpec };
 
-/** Action a component can trigger. No arbitrary URLs, no expressions (§10). */
+/** Action a component can trigger. No arbitrary URLs beyond http(s), no expressions (§10). */
 export type ActionSpec =
   | { kind: "toggleItem"; dataset: ID; itemId: string }
   | { kind: "event"; type: string; payload?: Record<string, unknown> }
-  | { kind: "openDashboard" };
+  | { kind: "openDashboard" }
+  /** Opens an external http(s) page in the platform browser (validated). */
+  | { kind: "openUrl"; href: string };
 
 // ---------------------------------------------------------------------------
 // Datasets
@@ -179,6 +182,28 @@ export const DATA_LIMITS = {
   maxLabelLength: 500,
   maxPayloadBytes: 1_000_000
 } as const;
+
+/**
+ * Uploaded asset bounds (§10: prefer uploaded, access-controlled assets over
+ * arbitrary remote URLs). Raster formats only — SVG can carry script and is not
+ * rendered from untrusted uploads.
+ */
+export const ASSET_LIMITS = {
+  maxBytes: 5_000_000,
+  mimeTypes: ["image/png", "image/jpeg", "image/webp", "image/gif"] as const
+} as const;
+
+export type AssetMimeType = (typeof ASSET_LIMITS.mimeTypes)[number];
+
+export interface AssetInfo {
+  id: string;
+  mimeType: string;
+  bytes: number;
+  filename?: string;
+  createdAt: number;
+  /** Client-facing URL (access-controlled). */
+  url: string;
+}
 
 // ---------------------------------------------------------------------------
 // Drafts, reviews, publications

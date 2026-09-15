@@ -19,6 +19,9 @@ interface RenderSpec {
   datasets: Dataset[];
   target: TargetKind;
   profile?: string;
+  /** assetId -> inlined data: URL, provided by the preview worker so screenshots
+   *  show the real uploaded images without any network access. */
+  assets?: Record<string, string>;
 }
 
 function decodeBase64Url(s: string): string {
@@ -68,6 +71,7 @@ function PreviewApp() {
       datasets={spec.datasets ?? []}
       target={spec.target ?? 'desktop'}
       onAction={handleAction}
+      assets={spec.assets}
       preview
     />
   );
