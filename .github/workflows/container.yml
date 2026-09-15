@@ -69,26 +69,6 @@ jobs:
           node scripts/e2e.mjs
           bash scripts/stack-down.sh
 
-      - name: E2E acceptance suite (native widget review via stub renderer)
-        run: |
-          export VELLUM_WIDGET_RENDERER_CMD="$PWD/scripts/widget-renderer-stub.sh"
-          bash scripts/stack-up.sh /tmp/vellum-ci-widget
-          node scripts/e2e.mjs
-          bash scripts/stack-down.sh
-
-      - name: Widget review gate blocks publish when the renderer fails
-        run: |
-          export VELLUM_WIDGET_RENDERER_CMD="$PWD/scripts/widget-renderer-stub.sh"
-          export VELLUM_STUB_FAIL=1
-          bash scripts/stack-up.sh /tmp/vellum-ci-gate
-          if node scripts/e2e.mjs; then
-            echo "::error::a failing widget renderer did not block publication"
-            bash scripts/stack-down.sh
-            exit 1
-          fi
-          bash scripts/stack-down.sh
-          echo "gate OK: failing widget render produced a failed review"
-
       - name: MCP integration test
         env:
           VELLUM_DATA_DIR: /tmp/vellum-ci-mcp

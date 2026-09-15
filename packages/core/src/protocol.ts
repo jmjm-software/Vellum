@@ -58,7 +58,12 @@ export interface ContextResult {
   draft: { id: string; version: number; updatedAt: number; content?: DesignContent } | null;
   datasets: DatasetSummary[];
   targets: { kind: TargetKind; supported: boolean; notes?: string }[];
-  capabilities: { preview: boolean; widget: boolean; continuousMode: boolean };
+  capabilities: {
+    preview: boolean;
+    /** Launcher-widget previews (drawn by the layout mirror). */
+    widget: boolean;
+    continuousMode: boolean;
+  };
   /** Authoring guidance bundled with the response (§5: bundle the guidance). */
   guidance: string;
   catalogue: string;

@@ -6,11 +6,7 @@ logs
 .vellum-data
 *.md
 !README.md
-# Android build outputs stay out of every image; the sources are needed by the
-# widget-renderer image (Containerfile.widget-renderer).
-android/.gradle
-android/**/build
-android/local.properties
-android/.idea
+# The android module is built by its own workflow/APKs, never by the service image.
+android
 scripts/stack-up.sh
 scripts/stack-down.sh

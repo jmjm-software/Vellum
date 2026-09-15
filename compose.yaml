@@ -1,7 +1,7 @@
 # Vellum — one service per container, shared state volume.
 #
 #   docker compose up --build -d
-#   docker compose logs -f server worker widget-renderer
+#   docker compose logs -f server worker
 #
 # Topology notes:
 # - `server` owns the HTTP API, SSE, static web client and /preview.html.
@@ -9,9 +9,8 @@
 #   over the compose network and shares the SAME volume, because SQLite is
 #   embedded (a file, not a service): /data/store.db + /data/artifacts. It is
 #   also the component that talks to the native widget renderer.
-# - `widget-renderer` renders the REAL Glance widget (RemoteViews) to PNGs so
-#   widget designs get native screenshots in their review. It is optional: without
-#   it the review records `widget_preview_unavailable` (a warning) instead.
+# - Widget previews are produced by `worker` itself, via the built-in layout
+#   mirror (no JDK, no Android SDK, works on any architecture incl. a Pi).
 # - SQLite is single-writer/single-host: do not scale replicas and do not put
 #   /data on a network filesystem (WAL). Multi-replica deployments are the
 #   trigger to move to PostgreSQL (architecture.md §10).
@@ -40,14 +39,8 @@ services:
     environment:
       # Render previews against the server container (serves /preview.html).
       VELLUM_RENDERER_URL: http://server:8787
-      # Optional native widget previews (enable with --profile native-widget).
-      # Without it the worker uses its built-in layout mirror.
-      VELLUM_WIDGET_RENDERER_URL: ${VELLUM_WIDGET_RENDERER_URL:-}
       # The worker needs the client token to read uploaded assets for inlining.
       VELLUM_CLIENT_TOKEN: ${VELLUM_CLIENT_TOKEN:-client-dev-token}
-      # Set to 0 if the renderer is unavailable (e.g. no x86_64 emulation on an
-      # arm64 host) and a widget design should only warn instead of blocking.
-      VELLUM_REQUIRE_WIDGET_REVIEW: ${VELLUM_REQUIRE_WIDGET_REVIEW:-1}
     volumes:
       - vellum-data:/data
     depends_on:
@@ -59,36 +52,6 @@ services:
       disable: true
     restart: unless-stopped
 
-  # OPTIONAL high-fidelity widget previews. By default the worker draws widget
-  # previews itself with a layout mirror (lightweight, works on any architecture —
-  # including a Raspberry Pi, where the Android toolchain does not exist).
-  # Enable this service for launcher-accurate pixels:
-  #   docker compose --profile native-widget up -d
-  widget-renderer:
-    profiles: ["native-widget"]
-    build:
-      context: .
-      dockerfile: Containerfile.widget-renderer
-    image: ghcr.io/jmjm-software/vellum-widget-renderer:latest
-    # Pinned to amd64 on purpose: the Android toolchain this renderer needs is
-    # x86_64-only on Linux — the Android SDK ships no linux-aarch64 archive at
-    # all, there is no arm64 aapt2 in any AGP version, and Robolectric's native
-    # runtime (which draws the actual pixels) provides linux/x86_64, mac/* and
-    # windows/x86_64 only. On arm64 hosts Docker therefore runs it under
-    # emulation: automatic with Docker Desktop, and on plain arm64 Linux after
-    #   docker run --privileged --rm tonistiigi/binfmt --install amd64
-    platform: linux/amd64
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8790/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 30s
-      timeout: 10s
-      start_period: 30s
-      retries: 3
-    volumes:
-      # Warm Gradle build directory: keeps incremental widget renders fast.
-      - widget-gradle-build:/renderer/android/app/build
-    restart: unless-stopped
 
 volumes:
   vellum-data:
-  widget-gradle-build:

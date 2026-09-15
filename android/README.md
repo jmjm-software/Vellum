@@ -82,7 +82,7 @@ The publish pipeline's screenshot review covers the **dashboard targets only** (
 | --- | --- | --- |
 | Design validation (server) | Widget-spec sanity warnings: component count, single-line text length, list `maxItems`, unknown assets, unknown datasets | every `dashboard_edit` |
 | Native widget tests | Renders the real Glance widget and asserts the node tree: designed components render, `filter: unchecked` hides done items, `maxItems` truncates, remaining count appears, the cached image renders (or a visible placeholder), starter fallback works | `./gradlew :app:testDebugUnitTest` and the `android-apk` CI job |
-| Native widget renderer | Renders the real Glance widget (its RemoteViews) to PNGs at launcher sizes and attaches them to the **review record**, so `dashboard_preview` returns them to the agent as image blocks and a failed render **blocks publication** | `scripts/render-widget-previews.sh` via `VELLUM_WIDGET_RENDERER_CMD`; previews also land in `android/app/build/widget-previews` (CI artifact `vellum-widget-previews`) |
+| Native widget renderer test | Renders the real Glance widget (its RemoteViews) to PNGs at launcher sizes — verification and CI evidence for the app, **not** part of the server's review path | `./gradlew :app:testDebugUnitTest` (`WidgetPreviewRendererTest`); PNGs land in `android/app/build/widget-previews` (CI artifact `vellum-widget-previews`) |
 
 ### What the agent can tune on the widget
 
@@ -102,68 +102,16 @@ is something the agent can see **and** fix by editing the design (e.g. `size: "l
 another row) — verified by a pixel test that renders the same widget with `small` and `large`
 and asserts the image footprint grows (~784 → ~6400 marker pixels at 320x320).
 
-### Lightweight widget previews (default) vs native (optional)
+### Widget previews (server) vs native rendering (this module)
 
-Widget previews no longer require this module or the heavy sidecar at all: the preview worker draws
-them with a layout mirror that shares its tokens with the Kotlin renderer
-(`packages/core/src/widget-layout.json`), producing `widget-mirror-small` / `widget-mirror-large`
-screenshots at the real launcher sizes, flagged `widget_preview_approximate`. This works on any
-architecture, including a Raspberry Pi. The native renderer below supersedes those screenshots
-(`widget_preview_native`) when it is attached — use it when you want launcher-accurate pixels.
+Server-side widget previews need nothing from this module: the preview worker draws them with a
+layout mirror sharing the tokens in `packages/core/src/widget-layout.json`, producing
+`widget-mirror-small` / `widget-mirror-large` screenshots at the real launcher sizes, flagged
+`widget_preview_approximate`. It works on any architecture, including a Raspberry Pi.
 
-### Enabling the native widget review
+This module renders the **real** widget natively (Glance → RemoteViews → pixels) for verification:
+`WidgetPreviewRendererTest` writes PNGs to `android/app/build/widget-previews` and CI uploads them.
+That path needs a JDK + Android SDK, so it lives in the android workflow / local dev — it is not a
+deployment dependency (and cannot run natively on arm64 Linux: no arm64 AAPT2 in any AGP version and
+no `native/linux/aarch64` in Robolectric).
 
-```bash
-# Renderer (needs JDK 17 + Android SDK; same toolchain as building the APK):
-export VELLUM_WIDGET_RENDERER_CMD="$PWD/scripts/render-widget-previews.sh"
-bash scripts/stack-up.sh        # preview worker picks it up
-```
-
-- The worker writes the same state shape the widget consumes (`publication.content.widget` +
-  `datasets` + inlined asset bytes) to `widget-spec.json`, runs the command, and collects the
-  `widget-*.png` files it produces into `<data>/artifacts/reviews/<reviewId>/widget/`.
-- `dashboard_context.capabilities.widget` reflects whether a renderer is attached, so the agent
-  knows before publishing whether the widget will actually be reviewed.
-- Without a renderer the review records an explicit `widget_preview_unavailable` **warning**
-  (publish still allowed) instead of silently skipping the widget.
-- Renderer output is real RemoteViews pixels (Robolectric native graphics). It is *not* a browser
-  approximation; fidelity is high but the launcher's own chrome (padding, corner masks, dynamic
-  colors) is not part of the image.
-- The sidecar image is published **amd64 only**, because the toolchain it needs does not exist for
-  Linux arm64 (verified, not assumed):
-  | Piece | linux/arm64? |
-  | --- | --- |
-  | Android SDK archives (`host-os=linux`, `host-arch=aarch64`) | none exist |
-  | `aapt2` (Maven, every AGP version incl. 8.13.x) | only `linux` (x86_64), `osx`, `windows` |
-  | Robolectric nativeruntime (draws the actual pixels) | `linux/x86_64`, `mac/*`, `windows/x86_64` — no `linux/aarch64` |
-  On arm64 hosts `compose.yaml` pins `platform: linux/amd64`, so it runs under emulation
-  (automatic on Docker Desktop; on plain arm64 Linux: `docker run --privileged --rm tonistiigi/binfmt --install amd64`).
-  A native arm64 widget renderer would need an emulator-based worker (arm64 system image + KVM)
-  instead of a Gradle/Robolectric one — not implemented.
-- The default service image has no JDK/Android SDK, so use the **sidecar image**
-  (`Containerfile.widget-renderer` → `ghcr.io/<owner>/vellum-widget-renderer`) and point the worker
-  at it with `VELLUM_WIDGET_RENDERER_URL=http://widget-renderer:8790` — `compose.yaml` wires
-  both together: `docker compose up -d --build`. Alternatively run the renderer where the toolchain
-  exists (`VELLUM_WIDGET_RENDERER_CMD`) or use the CI artifacts.
-
-## Known limitations (documented, not hidden)
-
-- **Widget preview is device-only.** The architecture's rule — widget preview must exercise the
-  native implementation, never a browser screenshot — is honored by NOT offering a browser
-  preview for widgets. There is no `widget` entry in the preview-worker profiles; the native unit
-  tests above cover structure, not pixels.
-- Cleartext HTTP is permitted (`usesCleartextTraffic=true`) for self-hosted LAN servers; use
-  HTTPS in production.
-- Image components in the widget render only from the prefetched cache (no lazy network load
-  in background updates).
-- Widget update cadence is WorkManager periodic (15 min) + foreground refresh; push-level
-  freshness is a harness/host concern (§9 continuous mode).
-- `app-debug.apk` is a debug build; the release build has minification disabled for now.
-
-## Milestone status (architecture §11)
-
-- [x] Minimal product slice (checklist + metric, drafts, previews, guarded publish)
-- [x] Shared renderer validated in a real harness (hermes)
-- [x] **Android shell** (this module)
-- [x] **One native launcher-widget presentation** (shopping-list widget, this module)
-- [ ] Catalogue expansion, more widget presentations, richer CLI TUI

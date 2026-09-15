@@ -323,9 +323,9 @@ export class AppService {
       targets: PREVIEW_PROFILES.map((p) => ({ kind: p.target, supported: true })),
       capabilities: {
         preview: true,
-        // Whether a native widget renderer is attached to the preview worker:
-        // determines if a widget design will get a visual review before publish.
-        widget: getMeta("widget_renderer") === "available",
+        // Widget previews ship with the worker (layout mirror), so a widget
+        // design always gets screenshots in its review.
+        widget: true,
         continuousMode: false,
       },
       guidance: AUTHORING_GUIDANCE,

@@ -40,25 +40,15 @@ import {
   markJobDone,
   markJobFailed,
   releaseJobToQueued,
-  setMeta,
   type DatasetRow,
   type PreviewJobRow
 } from "./db.js";
-import { runAllProfiles, collectAssetIds, inlineAssets, renderWidgetPreviews } from "./render.js";
+import { runAllProfiles, collectAssetIds, inlineAssets, widgetDesignDiagnostics } from "./render.js";
 
 const rendererUrl = process.env.VELLUM_RENDERER_URL ?? "http://localhost:8788";
 // Used only to read uploaded assets for inlining into preview specs.
 const clientToken = process.env.VELLUM_CLIENT_TOKEN ?? "client-dev-token";
-// Optional native widget renderer (see scripts/render-widget-previews.sh). When
-// unset, widget designs are published without a visual review — and the review
-// says so explicitly instead of pretending otherwise.
-const widgetRendererCmd = process.env.VELLUM_WIDGET_RENDERER_CMD ?? "";
-// Sidecar renderer (preferred in containers: no JDK/Android SDK needed here).
-const widgetRendererUrl = process.env.VELLUM_WIDGET_RENDERER_URL ?? "";
-// When a renderer is configured but fails, publication is blocked by default.
-// Set VELLUM_REQUIRE_WIDGET_REVIEW=0 to downgrade widget failures to warnings
-// (e.g. a flaky sidecar you do not want to gate on).
-const requireWidgetReview = (process.env.VELLUM_REQUIRE_WIDGET_REVIEW ?? "1") !== "0";
+
 const pollIntervalMs = Number(process.env.VELLUM_POLL_INTERVAL_MS ?? 2000);
 const jobTimeoutMs = Number(process.env.VELLUM_JOB_TIMEOUT_MS ?? 240_000); // ~4 min
 
@@ -184,48 +174,17 @@ async function runJob(job: PreviewJobRow): Promise<void> {
     if (r.screenshot) screenshots.push(r.screenshot);
   }
 
-  // Launcher widget: mirror previews are always produced (above). A native
-  // renderer, when attached, replaces them with launcher-accurate screenshots.
+  // Launcher widget: the mirror previews produced above are the widget evidence.
+  // They are approximate (no launcher chrome), and the review says so.
   if (hasWidgetDesign) {
-    if (widgetRendererCmd || widgetRendererUrl) {
-      const widgetResult = await renderWidgetPreviews(
-        widgetRendererCmd,
-        widgetRendererUrl || undefined,
-        rendererUrl,
-        reviewId,
-        artifactDir,
-        content,
-        datasets,
-        inlined.assets
-      );
-      diagnostics.push(
-        ...(requireWidgetReview
-          ? widgetResult.diagnostics
-          : widgetResult.diagnostics.map((d) => (d.severity === "error" ? { ...d, severity: "warning" as const } : d)))
-      );
-      if (widgetResult.screenshots.length > 0) {
-        // Native supersedes the mirror: drop the approximate shots so the review
-        // shows exactly one, authoritative widget preview.
-        for (let i = screenshots.length - 1; i >= 0; i--) {
-          if (screenshots[i].target === "widget") screenshots.splice(i, 1);
-        }
-        screenshots.push(...widgetResult.screenshots);
-        diagnostics.push({
-          severity: "info",
-          code: "widget_preview_native",
-          message: "widget previews were rendered by the native renderer (launcher-accurate)",
-          target: "widget"
-        });
-      }
-    } else {
-      diagnostics.push({
-        severity: "info",
-        code: "widget_preview_approximate",
-        message:
-          "widget previews are drawn by the built-in layout mirror (approximate: no launcher chrome). Attach a native renderer (VELLUM_WIDGET_RENDERER_URL / VELLUM_WIDGET_RENDERER_CMD) for launcher-accurate screenshots.",
-        target: "widget"
-      });
-    }
+    diagnostics.push(...widgetDesignDiagnostics(content, datasets, screenshots));
+    diagnostics.push({
+      severity: "info",
+      code: "widget_preview_approximate",
+      message:
+        "widget previews are drawn by the built-in layout mirror (approximate: launcher chrome such as cell padding, corner masking and dynamic colors is not included)",
+      target: "widget"
+    });
   }
 
   const review: ReviewRecord = {
@@ -332,19 +291,8 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 
 async function main(): Promise<void> {
   console.log(
-    `[preview-worker] polling every ${pollIntervalMs}ms; renderer=${rendererUrl}; artifacts=${artifactDir}` +
-      `; widgetRenderer=${
-        widgetRendererUrl ? `sidecar ${widgetRendererUrl}` : widgetRendererCmd ? "command" : "none"
-      }`
+    `[preview-worker] polling every ${pollIntervalMs}ms; renderer=${rendererUrl}; artifacts=${artifactDir}`
   );
-  // Publish the capability so dashboard_context can tell the agent whether a
-  // widget design will actually be reviewed before it publishes.
-  try {
-    setMeta("widget_renderer", widgetRendererCmd || widgetRendererUrl ? "available" : "unavailable");
-    setMeta("widget_renderer_checked_at", String(Date.now()));
-  } catch (err) {
-    console.error(`[preview-worker] could not record widget renderer capability: ${err}`);
-  }
   while (!shuttingDown) {
     let job: PreviewJobRow | undefined;
     try {

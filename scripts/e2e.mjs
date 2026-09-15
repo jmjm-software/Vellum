@@ -300,26 +300,14 @@ async function main() {
 
     // Launcher widget: reviewed natively when a renderer is attached, otherwise
     // the review must say out loud that the widget was not visually reviewed.
-    const ctxWidget = await agent("POST", "/api/agent/context", {});
-    const widgetCapable = ctxWidget.json?.capabilities?.widget === true; // native renderer attached
     const widgetShots = (review.screenshots ?? []).filter((s) => s.target === "widget");
     const mirrorShots = widgetShots.filter((s) => s.profile.startsWith("widget-mirror-"));
-    check("widget design got a preview (mirror and/or native)", widgetShots.length >= 1, review.screenshots);
-    if (widgetCapable) {
-      check(
-        "native renderer superseded the mirror previews",
-        mirrorShots.length === 0 &&
-          (review.diagnostics ?? []).some((d) => d.code === "widget_preview_native"),
-        widgetShots.map((s) => s.profile)
-      );
-    } else {
-      check(
-        "mirror previews are labelled as approximate",
-        mirrorShots.length >= 1 &&
-          (review.diagnostics ?? []).some((d) => d.code === "widget_preview_approximate"),
-        review.diagnostics
-      );
-    }
+    check("widget design got mirror previews at launcher sizes", mirrorShots.length >= 1, review.screenshots);
+    check(
+      "mirror previews are labelled as approximate",
+      (review.diagnostics ?? []).some((d) => d.code === "widget_preview_approximate"),
+      review.diagnostics
+    );
 
     if (review.status !== "failed") {
       const pub = await agent("POST", "/api/agent/publish", {

@@ -36,13 +36,15 @@ import org.robolectric.annotation.GraphicsMode
  * *seen* instead of guessed — architecture §4: "when widget editing is enabled,
  * its preview path must exercise the native implementation".
  *
- * Invoked by the preview worker through:
+ * Verification of the app's real widget: run it directly
+ *   ./gradlew :app:testDebugUnitTest
+ * or render an arbitrary design (state-shaped JSON, same as the client consumes):
  *   ./gradlew :app:testDebugUnitTest --tests "*WidgetPreviewRendererTest*" \
  *     -Dvellum.widgetSpec=/path/spec.json -Dvellum.outDir=/path/out
  *
- * `spec.json` is the state shape the widget consumes:
- *   { serverTime, publication.content.widget, datasets, assets: { assetId: base64 } }
- * Without system properties it renders a built-in fixture (keeps CI meaningful).
+ * This is *not* part of the server's review path (that uses the lightweight
+ * layout mirror in the preview worker, which needs no Android toolchain); the
+ * PNGs it writes are evidence for developers and CI artifacts.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])

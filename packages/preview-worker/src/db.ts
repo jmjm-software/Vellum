@@ -197,8 +197,3 @@ export function getDatasetsById(ids: string[]): DatasetRow[] {
     .prepare(`SELECT * FROM datasets WHERE id IN (${placeholders})`)
     .all(...ids) as DatasetRow[];
 }
-
-/** Capability record the server reads back (e.g. whether a widget renderer is up). */
-export function setMeta(key: string, value: string): void {
-  db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(key, value);
-}
