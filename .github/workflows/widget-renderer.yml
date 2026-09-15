@@ -73,10 +73,13 @@ jobs:
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
 
-      # amd64 only: AAPT2 (needed to compile the module's resources during the
-      # image build) ships x86_64 Linux binaries only — there is no
-      # linux-aarch64 artifact for any AGP version. On arm64 hosts the image runs
-      # through emulation.
+      # amd64 only — an arm64 renderer image cannot be built (or run) with this
+      # toolchain, verified: the Android SDK repo contains zero linux+aarch64
+      # archives; aapt2 has no linux-aarch64 artifact in any AGP version; and
+      # Robolectric's nativeruntime (which draws the widget's pixels) ships
+      # linux/x86_64, mac/* and windows/x86_64 only. On arm64 hosts the image
+      # runs under emulation (Docker Desktop automatic; plain Linux via
+      # `tonistiigi/binfmt --install amd64`).
       - name: Build${{ github.event_name != 'pull_request' && ' & push' || '' }} linux/amd64
         id: build
         uses: docker/build-push-action@v6

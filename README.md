@@ -98,14 +98,17 @@ docker compose up -d --build          # or: podman-compose up -d --build
 open "http://localhost:8787/?token=client-dev-token"
 ```
 
-`docker-compose.yml` runs two images:
+`compose.yaml` runs one container per concern, sharing the state volume:
 
 | Service | Purpose |
 | --- | --- |
-| `vellum` | Dashboard service (client API, agent API, SSE, web client, preview worker with chromium) |
-| `widget-renderer` | Native launcher-widget renderer (JDK 17 + Android SDK). The preview worker calls it over HTTP (`VELLUM_WIDGET_RENDERER_URL`), so widget designs get **real rendered screenshots** in their review and a failed render blocks publication |
+| `server` | HTTP API, SSE, static web client, `/preview.html` |
+| `worker` | Playwright preview worker (renders against `server`; talks to the widget renderer) |
+| `widget-renderer` | Native launcher-widget renderer (JDK 17 + Android SDK). The worker calls it over HTTP (`VELLUM_WIDGET_RENDERER_URL`), so widget designs get **real rendered screenshots** in their review and a failed render blocks publication. Published for **linux/amd64 only** — the Android resource compiler and Robolectric's native graphics are x86_64-only on Linux (no `linux-aarch64` archive in the Android SDK, no arm64 `aapt2` in any AGP version, no `native/linux/aarch64` in Robolectric). On arm64 hosts compose pins `platform: linux/amd64`, so it runs under emulation: automatic with Docker Desktop, and on plain arm64 Linux after `docker run --privileged --rm tonistiigi/binfmt --install amd64`. Set `VELLUM_REQUIRE_WIDGET_REVIEW=0` if you would rather have a missing renderer warn than block |
 
-Set `VELLUM_REQUIRE_WIDGET_REVIEW=0` if a flaky renderer should only warn instead of blocking.
+Without the `widget-renderer` service the review records an explicit
+`widget_preview_unavailable` warning instead of silently skipping the widget.
+
 
 ### Single image
 

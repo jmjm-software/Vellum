@@ -120,12 +120,20 @@ bash scripts/stack-up.sh        # preview worker picks it up
 - Renderer output is real RemoteViews pixels (Robolectric native graphics). It is *not* a browser
   approximation; fidelity is high but the launcher's own chrome (padding, corner masks, dynamic
   colors) is not part of the image.
-- The sidecar image is published **amd64 only**: the Android resource compiler AAPT2 (needed to
-  build the module inside the image) has no Linux arm64 artifact for any AGP version. On arm64
-  hosts it runs through emulation.
+- The sidecar image is published **amd64 only**, because the toolchain it needs does not exist for
+  Linux arm64 (verified, not assumed):
+  | Piece | linux/arm64? |
+  | --- | --- |
+  | Android SDK archives (`host-os=linux`, `host-arch=aarch64`) | none exist |
+  | `aapt2` (Maven, every AGP version incl. 8.13.x) | only `linux` (x86_64), `osx`, `windows` |
+  | Robolectric nativeruntime (draws the actual pixels) | `linux/x86_64`, `mac/*`, `windows/x86_64` — no `linux/aarch64` |
+  On arm64 hosts `compose.yaml` pins `platform: linux/amd64`, so it runs under emulation
+  (automatic on Docker Desktop; on plain arm64 Linux: `docker run --privileged --rm tonistiigi/binfmt --install amd64`).
+  A native arm64 widget renderer would need an emulator-based worker (arm64 system image + KVM)
+  instead of a Gradle/Robolectric one — not implemented.
 - The default service image has no JDK/Android SDK, so use the **sidecar image**
   (`Containerfile.widget-renderer` → `ghcr.io/<owner>/vellum-widget-renderer`) and point the worker
-  at it with `VELLUM_WIDGET_RENDERER_URL=http://widget-renderer:8790` — `docker-compose.yml` wires
+  at it with `VELLUM_WIDGET_RENDERER_URL=http://widget-renderer:8790` — `compose.yaml` wires
   both together: `docker compose up -d --build`. Alternatively run the renderer where the toolchain
   exists (`VELLUM_WIDGET_RENDERER_CMD`) or use the CI artifacts.
 
