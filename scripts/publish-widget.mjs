@@ -34,6 +34,20 @@ async function agent(method, path, body) {
   return json;
 }
 
+/** First image component in a design tree (main tree only). */
+function findFirstImage(content) {
+  if (!content || !content.root) return null;
+  const stack = [content.root];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node.type === "image" && node.props && typeof node.props.assetId === "string") {
+      return { assetId: node.props.assetId, alt: node.props.alt };
+    }
+    for (const child of node.children ?? []) stack.push(child);
+  }
+  return null;
+}
+
 async function main() {
   const ctx = await agent("POST", "/api/agent/context", { includeDesign: true });
   console.log(`published revision: ${ctx.published?.revision ?? "none"}`);
@@ -43,12 +57,24 @@ async function main() {
 
   // Widget spec: title + the dataset's list (unchecked first, remaining count)
   // + open-dashboard action — a starting point the agent would refine.
+  //
+  // Images live in the main tree and do NOT appear on the launcher unless the
+  // widget spec references them, so the first image of the dashboard is carried
+  // over here (use --no-image to skip it).
+  const components = [
+    { kind: "text", text: datasetId, emphasis: "title" },
+    { kind: "list", dataset: datasetId, maxItems: 4, filter: "unchecked", showRemainingCount: true }
+  ];
+  if (!process.argv.includes("--no-image")) {
+    const firstImage = findFirstImage(ctx.published?.content ?? ctx.draft?.content);
+    if (firstImage) {
+      components.push({ kind: "image", assetId: firstImage.assetId, alt: firstImage.alt ?? "dashboard image" });
+      console.log(`including image ${firstImage.assetId} in the widget spec`);
+    }
+  }
+  components.push({ kind: "action", label: "Open dashboard", action: { kind: "openDashboard" } });
   const widget = {
-    components: [
-      { kind: "text", text: datasetId, emphasis: "title" },
-      { kind: "list", dataset: datasetId, maxItems: 4, filter: "unchecked", showRemainingCount: true },
-      { kind: "action", label: "Open dashboard", action: { kind: "openDashboard" } }
-    ],
+    components,
     datasets: [datasetId]
   };
 

@@ -126,6 +126,11 @@ class MainActivity : AppCompatActivity(), Bridge.Host {
         // launcher widget immediately (no network, no 15-min wait).
         ShellStore.cacheState(this, json)
         WidgetRenderWorker.refresh(this)
+        // If the widget design references images we do not have locally yet,
+        // fetch them now instead of waiting for the periodic worker.
+        if (ShellStore.missingWidgetAssetIds(this, json).isNotEmpty()) {
+            WidgetUpdateWorker.runOnce(this)
+        }
     }
 
     override fun onPageReady() {

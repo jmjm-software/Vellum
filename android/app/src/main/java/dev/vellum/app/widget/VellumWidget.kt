@@ -26,6 +26,7 @@ import androidx.glance.background
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
+import androidx.glance.layout.ContentScale
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
@@ -281,7 +282,12 @@ private fun WidgetImage(component: WidgetComponentDto) {
     Image(
         provider = ImageProvider(bitmap),
         contentDescription = component.alt ?: "",
-        modifier = GlanceModifier.fillMaxWidth()
+        contentScale = ContentScale.Fit,
+        // Explicit height: an Image with only fillMaxWidth can collapse to zero
+        // height in RemoteViews and become invisible.
+        modifier = GlanceModifier
+            .fillMaxWidth()
+            .height(96.dp)
     )
 }
 

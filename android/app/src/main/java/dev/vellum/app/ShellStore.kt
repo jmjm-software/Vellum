@@ -47,6 +47,31 @@ object ShellStore {
     fun cacheIndex(ctx: Context, html: String) = cacheAsset(ctx, "/index.html", html.toByteArray())
     fun cachedIndex(ctx: Context): File? = cachedAsset(ctx, "/index.html")
 
+    /**
+     * Asset ids referenced by the cached publication's widget spec that are not
+     * yet on disk. Used to trigger a prefetch right after a fresh state arrives
+     * (otherwise the launcher widget would wait for the 15-minute worker).
+     */
+    fun missingWidgetAssetIds(ctx: Context, stateJson: String): List<String> {
+        return runCatching {
+            val state = org.json.JSONObject(stateJson)
+            val components = state.optJSONObject("publication")
+                ?.optJSONObject("content")
+                ?.optJSONObject("widget")
+                ?.optJSONArray("components")
+                ?: return emptyList()
+            val missing = mutableListOf<String>()
+            for (i in 0 until components.length()) {
+                val c = components.optJSONObject(i) ?: continue
+                if (c.optString("kind") != "image") continue
+                val assetId = c.optString("assetId")
+                if (assetId.isBlank()) continue
+                if (!File(widgetAssetDir(ctx), assetId).exists()) missing.add(assetId)
+            }
+            missing
+        }.getOrDefault(emptyList())
+    }
+
     // --- offline action queue ---------------------------------------------------
 
     data class QueuedAction(val idempotencyKey: String, val body: String)

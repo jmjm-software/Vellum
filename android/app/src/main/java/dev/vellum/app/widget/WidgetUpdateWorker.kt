@@ -46,6 +46,9 @@ class WidgetUpdateWorker(context: Context, params: WorkerParameters) : Coroutine
                 if (!target.exists()) {
                     runCatching {
                         target.writeBytes(ApiClient.getBytes("$url/api/assets/$assetId", token))
+                    }.onFailure {
+                        // Visible in logcat: usually a token mismatch or offline.
+                        android.util.Log.w("VellumWidget", "asset prefetch failed for $assetId", it)
                     }
                 }
             }

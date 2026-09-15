@@ -105,6 +105,28 @@ export function formatDesignTree(content: DesignContent): string[] {
   }
 
   walk(content.root, "", true);
+
+  // The launcher widget is a separate compact presentation: images/components
+  // from the main tree appear there only if the widget spec includes them.
+  lines.push("");
+  const widget = content.widget;
+  if (widget && widget.components.length > 0) {
+    lines.push("Widget presentation (launcher):");
+    for (const c of widget.components) {
+      let detail = "";
+      if (c.kind === "text") detail = ` "${c.text}"`;
+      else if (c.kind === "metric") detail = ` dataset="${c.dataset}" field="${c.field}"`;
+      else if (c.kind === "list") detail = ` dataset="${c.dataset}" maxItems=${c.maxItems ?? 4}${c.filter ? ` filter=${c.filter}` : ""}`;
+      else if (c.kind === "progress") detail = ` dataset="${c.dataset}"`;
+      else if (c.kind === "image") detail = ` assetId="${c.assetId}"`;
+      else if (c.kind === "link") detail = ` "${c.label}" -> ${c.href}`;
+      else if (c.kind === "action") detail = ` "${c.label}" action=${c.action?.kind}`;
+      lines.push(`  ${c.kind}${detail}`);
+    }
+    lines.push(`  datasets: ${widget.datasets.join(", ") || "(none)"}`);
+  } else {
+    lines.push("Widget presentation (launcher): none designed — the widget falls back to a starter view");
+  }
   return lines;
 }
 
