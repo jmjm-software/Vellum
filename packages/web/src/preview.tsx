@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
 import ReactDOM from 'react-dom/client';
-import { DashboardRenderer } from '@vellum/renderer';
+import { DashboardRenderer, WidgetMirror } from '@vellum/renderer';
 import type { ActionSpec, DesignContent, Dataset, TargetKind } from '@vellum/core/types.js';
 
 declare global {
@@ -25,6 +25,10 @@ interface RenderSpec {
   datasets: Dataset[];
   target: TargetKind;
   profile?: string;
+  /** 'widget' renders the launcher-mirror view instead of the dashboard. */
+  mode?: 'dashboard' | 'widget';
+  /** Widget instance size in dp (mirror only). */
+  widgetSize?: { width: number; height: number };
   /** assetId -> inlined data: URL, provided by the preview worker so screenshots
    *  show the real uploaded images without any network access. */
   assets?: Record<string, string>;
@@ -70,6 +74,21 @@ function PreviewApp() {
     return (
       <div style={{ padding: 24, color: '#8a919c', fontFamily: 'system-ui, sans-serif' }}>
         Missing or invalid preview spec (window.__vellumSpec, ?spec=&lt;base64url json&gt; or window.name).
+      </div>
+    );
+  }
+
+  if (spec.mode === 'widget') {
+    const size = spec.widgetSize ?? { width: 250, height: 140 };
+    return (
+      <div style={{ padding: 0, background: 'transparent' }}>
+        <WidgetMirror
+          widget={spec.content.widget ?? { components: [], datasets: [] }}
+          datasets={spec.datasets ?? []}
+          assets={spec.assets}
+          width={size.width}
+          height={size.height}
+        />
       </div>
     );
   }

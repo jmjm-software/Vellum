@@ -19,6 +19,7 @@ import {
   CATALOGUE_VERSION,
   PREVIEW_PROFILES,
   RENDERER_VERSION,
+  WIDGET_PREVIEW_PROFILES,
   contentHash
 } from "@vellum/core";
 import type {
@@ -97,18 +98,19 @@ function rowToDataset(row: DatasetRow): Dataset {
 }
 
 function resolveProfiles(names: string[]): { profiles: TargetProfile[]; diagnostics: Diagnostic[] } {
+  const known = [...PREVIEW_PROFILES, ...WIDGET_PREVIEW_PROFILES];
   const diagnostics: Diagnostic[] = [];
   const wanted = names.length > 0 ? names : PREVIEW_PROFILES.map((p) => p.name);
   const profiles: TargetProfile[] = [];
   for (const name of wanted) {
-    const profile = PREVIEW_PROFILES.find((p) => p.name === name);
+    const profile = known.find((p) => p.name === name);
     if (profile) {
       profiles.push(profile);
     } else {
       diagnostics.push({
         severity: "warning",
         code: "unknown_profile",
-        message: `Unknown preview profile "${name}" (known: ${PREVIEW_PROFILES.map((p) => p.name).join(", ")})`
+        message: `Unknown preview profile "${name}" (known: ${known.map((p) => p.name).join(", ")})`
       });
     }
   }
@@ -144,6 +146,14 @@ async function runJob(job: PreviewJobRow): Promise<void> {
   const { profiles, diagnostics: profileDiagnostics } = resolveProfiles(
     safeParseProfiles(job.profiles)
   );
+  // A widget design always gets mirror previews: they cost nothing extra (same
+  // Playwright worker, same browser) and work on any architecture.
+  const hasWidgetDesign = (content.widget?.components?.length ?? 0) > 0;
+  if (hasWidgetDesign) {
+    for (const profile of WIDGET_PREVIEW_PROFILES) {
+      if (!profiles.some((p) => p.name === profile.name)) profiles.push(profile);
+    }
+  }
   if (profiles.length === 0) throw new Error("no runnable preview profiles");
 
   const reviewId = `review_${randomBytes(8).toString("hex")}`;
@@ -174,9 +184,8 @@ async function runJob(job: PreviewJobRow): Promise<void> {
     if (r.screenshot) screenshots.push(r.screenshot);
   }
 
-  // Launcher widget: reviewed natively when a renderer is configured, otherwise
-  // reported as unreviewed (never silently skipped).
-  const hasWidgetDesign = (content.widget?.components?.length ?? 0) > 0;
+  // Launcher widget: mirror previews are always produced (above). A native
+  // renderer, when attached, replaces them with launcher-accurate screenshots.
   if (hasWidgetDesign) {
     if (widgetRendererCmd || widgetRendererUrl) {
       const widgetResult = await renderWidgetPreviews(
@@ -194,13 +203,26 @@ async function runJob(job: PreviewJobRow): Promise<void> {
           ? widgetResult.diagnostics
           : widgetResult.diagnostics.map((d) => (d.severity === "error" ? { ...d, severity: "warning" as const } : d)))
       );
-      screenshots.push(...widgetResult.screenshots);
+      if (widgetResult.screenshots.length > 0) {
+        // Native supersedes the mirror: drop the approximate shots so the review
+        // shows exactly one, authoritative widget preview.
+        for (let i = screenshots.length - 1; i >= 0; i--) {
+          if (screenshots[i].target === "widget") screenshots.splice(i, 1);
+        }
+        screenshots.push(...widgetResult.screenshots);
+        diagnostics.push({
+          severity: "info",
+          code: "widget_preview_native",
+          message: "widget previews were rendered by the native renderer (launcher-accurate)",
+          target: "widget"
+        });
+      }
     } else {
       diagnostics.push({
-        severity: "warning",
-        code: "widget_preview_unavailable",
+        severity: "info",
+        code: "widget_preview_approximate",
         message:
-          "this design includes a launcher-widget presentation, but no native widget renderer is configured (VELLUM_WIDGET_RENDERER_URL / VELLUM_WIDGET_RENDERER_CMD) — the widget was not visually reviewed",
+          "widget previews are drawn by the built-in layout mirror (approximate: no launcher chrome). Attach a native renderer (VELLUM_WIDGET_RENDERER_URL / VELLUM_WIDGET_RENDERER_CMD) for launcher-accurate screenshots.",
         target: "widget"
       });
     }

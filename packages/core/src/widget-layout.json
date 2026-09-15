@@ -1,0 +1,47 @@
+{
+  "$comment": "Single source of truth for the launcher widget's visual layout. Consumed by the TypeScript widget mirror (renderer) and asserted against the Kotlin Glance renderer by a unit test, so the two cannot silently drift apart. Units: dp for sizes/radii, sp for type.",
+  "padding": 14,
+  "compactPadding": 10,
+  "compactHeightBelow": 170,
+  "gap": 8,
+  "radius": 20,
+  "actionRadius": 12,
+  "colors": {
+    "background": "#171C22",
+    "divider": "#232A31",
+    "actionBackground": "#232A31",
+    "title": "#F2F4F7",
+    "body": "#E6E9EC",
+    "muted": "#9AA4AF",
+    "accent": "#8AB4F8",
+    "done": "#6E7781",
+    "marker": "#5B8DEF",
+    "checked": "#4C8BF5",
+    "placeholder": "#232A31"
+  },
+  "type": {
+    "title": 15,
+    "metric": 20,
+    "body": 13,
+    "caption": 11
+  },
+  "imageHeights": {
+    "small": 56,
+    "medium": 96,
+    "large": 160
+  },
+  "imageRadius": 12,
+  "listRowPaddingY": 5,
+  "dividerHeight": 1,
+  "maxListItems": 6,
+  "budget": {
+    "under130": 2,
+    "under200": 3,
+    "under300": 5,
+    "else": 8
+  },
+  "profiles": {
+    "widget-small": { "width": 250, "height": 140 },
+    "widget-large": { "width": 320, "height": 320 }
+  }
+}

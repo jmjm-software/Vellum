@@ -29,6 +29,10 @@ export interface RenderSpec {
   datasets: Dataset[];
   target: TargetKind;
   profile: string;
+  /** 'widget' renders the launcher mirror instead of the dashboard renderer. */
+  mode?: "dashboard" | "widget";
+  /** Widget instance size in dp (mirror only). */
+  widgetSize?: { width: number; height: number };
   /** assetId -> inlined data: URL so screenshots contain the real image. */
   assets?: Record<string, string>;
 }
@@ -337,11 +341,16 @@ export async function runProfile(
       });
     }
 
-    // Screenshot (fullPage png) -> <artifactDir>/reviews/<reviewId>/<profile>.png
+    // Screenshot (png) -> <artifactDir>/reviews/<reviewId>/<profile>.png
+    // Widget profiles capture exactly the widget instance (element screenshot),
+    // dashboard profiles capture the full page.
     const dir = join(artifactDir, "reviews", reviewId);
     mkdirSync(dir, { recursive: true });
     const absPath = join(dir, `${profile.name}.png`);
-    const buf = await page.screenshot({ path: absPath, fullPage: true, type: "png" });
+    const buf =
+      spec.mode === "widget"
+        ? await page.locator('[data-component-id="widget-root"]').screenshot({ path: absPath, type: "png" })
+        : await page.screenshot({ path: absPath, fullPage: true, type: "png" });
     const size = pngSize(buf as unknown as Buffer);
     const screenshot: ScreenshotArtifact = {
       profile: profile.name,
@@ -398,7 +407,9 @@ export async function runProfile(
     }
 
     // Sandboxed checklist interaction tests (recorder only; no real data).
-    for (const checklistTarget of checklistTargets) {
+    // The widget mirror has no interactive checklist, so those checks are for
+    // dashboard profiles only.
+    for (const checklistTarget of profile.target === "widget" ? [] : checklistTargets) {
       diagnostics.push(...(await runInteractionTest(page, checklistTarget, profile.name)));
     }
 
@@ -425,12 +436,16 @@ export async function runAllProfiles(
   async function workerLoop(): Promise<void> {
     while (next < profiles.length) {
       const profile = profiles[next++]!;
+      const isWidget = profile.target === "widget";
       const spec: RenderSpec = {
         content,
         datasets,
         target: profile.target,
         profile: profile.name,
-        assets
+        assets,
+        ...(isWidget
+          ? { mode: "widget" as const, widgetSize: { width: profile.width, height: profile.height } }
+          : {})
       };
       try {
         results.push(

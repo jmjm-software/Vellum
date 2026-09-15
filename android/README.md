@@ -102,6 +102,15 @@ is something the agent can see **and** fix by editing the design (e.g. `size: "l
 another row) — verified by a pixel test that renders the same widget with `small` and `large`
 and asserts the image footprint grows (~784 → ~6400 marker pixels at 320x320).
 
+### Lightweight widget previews (default) vs native (optional)
+
+Widget previews no longer require this module or the heavy sidecar at all: the preview worker draws
+them with a layout mirror that shares its tokens with the Kotlin renderer
+(`packages/core/src/widget-layout.json`), producing `widget-mirror-small` / `widget-mirror-large`
+screenshots at the real launcher sizes, flagged `widget_preview_approximate`. This works on any
+architecture, including a Raspberry Pi. The native renderer below supersedes those screenshots
+(`widget_preview_native`) when it is attached — use it when you want launcher-accurate pixels.
+
 ### Enabling the native widget review
 
 ```bash

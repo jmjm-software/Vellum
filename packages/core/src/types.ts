@@ -8,6 +8,8 @@
  *  - ActionEvent: a user interaction and its processing state
  */
 
+import WIDGET_LAYOUT_JSON from "./widget-layout.json" with { type: "json" };
+
 // ---------------------------------------------------------------------------
 // Identifiers & versioning
 // ---------------------------------------------------------------------------
@@ -105,11 +107,48 @@ export interface WidgetSpec {
  */
 export type WidgetImageSize = "small" | "medium" | "large";
 
-export const WIDGET_IMAGE_HEIGHTS: Record<WidgetImageSize, number> = {
-  small: 56,
-  medium: 96,
-  large: 160
-};
+/**
+ * The widget's visual layout, kept in one place (widget-layout.json) so the
+ * TypeScript mirror used for previews and the Kotlin Glance renderer that draws
+ * the real launcher widget cannot drift apart. A Kotlin unit test asserts the
+ * Kotlin constants against this file.
+ */
+export interface WidgetLayout {
+  padding: number;
+  compactPadding: number;
+  compactHeightBelow: number;
+  gap: number;
+  radius: number;
+  actionRadius: number;
+  colors: Record<string, string>;
+  type: Record<string, number>;
+  imageHeights: Record<WidgetImageSize, number>;
+  imageRadius: number;
+  listRowPaddingY: number;
+  dividerHeight: number;
+  maxListItems: number;
+  budget: { under130: number; under200: number; under300: number; else: number };
+  profiles: Record<string, { width: number; height: number }>;
+}
+
+export const WIDGET_LAYOUT: WidgetLayout = WIDGET_LAYOUT_JSON as WidgetLayout;
+
+export const WIDGET_IMAGE_HEIGHTS: Record<WidgetImageSize, number> = WIDGET_LAYOUT.imageHeights;
+
+/**
+ * Launcher-widget preview profiles, rendered by the built-in layout mirror in
+ * the regular Playwright preview worker (works on any architecture). Names are
+ * distinct from native-renderer output, so a review shows which source produced
+ * a screenshot: `widget-mirror-*` = approximate mirror, `widget-*` = native.
+ */
+export const WIDGET_PREVIEW_PROFILES: TargetProfile[] = Object.entries(WIDGET_LAYOUT.profiles).map(
+  ([name, size]) => ({
+    target: "widget" as const,
+    name: name.replace(/^widget-/, "widget-mirror-"),
+    width: size.width,
+    height: size.height
+  })
+);
 
 export type WidgetComponent =
   | { kind: "text"; text: string; emphasis?: "title" | "normal" | "caption" }

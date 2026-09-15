@@ -40,8 +40,9 @@ services:
     environment:
       # Render previews against the server container (serves /preview.html).
       VELLUM_RENDERER_URL: http://server:8787
-      # Native widget previews: the worker calls the renderer sidecar over HTTP.
-      VELLUM_WIDGET_RENDERER_URL: http://widget-renderer:8790
+      # Optional native widget previews (enable with --profile native-widget).
+      # Without it the worker uses its built-in layout mirror.
+      VELLUM_WIDGET_RENDERER_URL: ${VELLUM_WIDGET_RENDERER_URL:-}
       # The worker needs the client token to read uploaded assets for inlining.
       VELLUM_CLIENT_TOKEN: ${VELLUM_CLIENT_TOKEN:-client-dev-token}
       # Set to 0 if the renderer is unavailable (e.g. no x86_64 emulation on an
@@ -58,7 +59,13 @@ services:
       disable: true
     restart: unless-stopped
 
+  # OPTIONAL high-fidelity widget previews. By default the worker draws widget
+  # previews itself with a layout mirror (lightweight, works on any architecture —
+  # including a Raspberry Pi, where the Android toolchain does not exist).
+  # Enable this service for launcher-accurate pixels:
+  #   docker compose --profile native-widget up -d
   widget-renderer:
+    profiles: ["native-widget"]
     build:
       context: .
       dockerfile: Containerfile.widget-renderer

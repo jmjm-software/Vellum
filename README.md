@@ -103,12 +103,25 @@ open "http://localhost:8787/?token=client-dev-token"
 | Service | Purpose |
 | --- | --- |
 | `server` | HTTP API, SSE, static web client, `/preview.html` |
-| `worker` | Playwright preview worker (renders against `server`; talks to the widget renderer) |
-| `widget-renderer` | Native launcher-widget renderer (JDK 17 + Android SDK). The worker calls it over HTTP (`VELLUM_WIDGET_RENDERER_URL`), so widget designs get **real rendered screenshots** in their review and a failed render blocks publication. Published for **linux/amd64 only** — the Android resource compiler and Robolectric's native graphics are x86_64-only on Linux (no `linux-aarch64` archive in the Android SDK, no arm64 `aapt2` in any AGP version, no `native/linux/aarch64` in Robolectric). On arm64 hosts compose pins `platform: linux/amd64`, so it runs under emulation: automatic with Docker Desktop, and on plain arm64 Linux after `docker run --privileged --rm tonistiigi/binfmt --install amd64`. Set `VELLUM_REQUIRE_WIDGET_REVIEW=0` if you would rather have a missing renderer warn than block |
+| `worker` | Preview worker: dashboard screenshots (Playwright) **and** widget previews |
+| `widget-renderer` | *Optional* (`--profile native-widget`): renders the real Glance widget for launcher-accurate pixels |
 
-Without the `widget-renderer` service the review records an explicit
-`widget_preview_unavailable` warning instead of silently skipping the widget.
+**Widget previews work everywhere, without the heavy image.** The worker draws them itself with a
+layout mirror (`packages/renderer/src/widget-mirror.tsx`) that uses the same layout tokens as the
+Kotlin Glance renderer (`packages/core/src/widget-layout.json`), at real launcher sizes
+(250×140, 320×320). Those screenshots are labelled `widget-mirror-*` and the review adds
+`widget_preview_approximate`. Attaching the native renderer replaces them with `widget-*` plus
+`widget_preview_native`.
 
+The native renderer image is published for **linux/amd64 only** — the Android toolchain it needs
+does not exist for arm64 Linux at all (no `linux-aarch64` archive in the Android SDK, no arm64
+`aapt2` in any AGP version, no `native/linux/aarch64` in Robolectric's runtime). On arm64 hosts it
+would run under emulation; that is why it is optional and off by default.
+
+```bash
+docker compose up -d --build                          # server + worker (widget mirror previews)
+docker compose --profile native-widget up -d --build  # + native widget renderer sidecar
+```
 
 ### Single image
 
