@@ -24,6 +24,9 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import android.graphics.Color
+import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertTrue
 
 /**
@@ -51,6 +54,11 @@ class WidgetPreviewRendererTest {
         "widget-large" to (320 to 320) // ~5x4, resizable
     )
 
+    @After
+    fun restoreDecoderSeam() {
+        WidgetImages.decode = DEFAULT_DECODER
+    }
+
     @Test
     fun `renders widget previews as png`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -63,6 +71,17 @@ class WidgetPreviewRendererTest {
         // image assets.
         ShellStore.cacheState(context, specJson)
         writeAssets(context, specJson)
+        // The fixture references an image; mark it with a colour that appears
+        // nowhere else in the widget palette so its pixels are unambiguous.
+        WidgetImages.decode = { android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888).apply { eraseColor(Color.MAGENTA) } }
+        val specAssets = runCatching {
+            (ApiClient.json.parseToJsonElement(specJson) as? kotlinx.serialization.json.JsonObject)
+                ?.get("assets")?.let { it as? kotlinx.serialization.json.JsonObject }
+                ?.keys?.toList() ?: emptyList()
+        }.getOrDefault(emptyList())
+        for (assetId in specAssets) {
+            File(ShellStore.widgetAssetDir(context), assetId).writeBytes(byteArrayOf(1, 2, 3, 4))
+        }
 
         val state = ApiClient.json.decodeFromString<StateDto>(specJson)
         assertTrue("fixture must contain a widget spec", state.publication?.content?.widget != null)
@@ -117,6 +136,22 @@ class WidgetPreviewRendererTest {
 
             val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             view.draw(Canvas(bitmap))
+
+            // Pixel proof that the image component reached the widget: scan for
+            // the magenta marker the decoder seam produces.
+            var magentaPixels = 0
+            for (y in 0 until height step 2) {
+                for (x in 0 until width step 2) {
+                    val pixel = bitmap.getPixel(x, y)
+                    if (Color.red(pixel) > 200 && Color.blue(pixel) > 200 && Color.green(pixel) < 80) magentaPixels++
+                }
+            }
+            if (name == "widget-large") {
+                assertTrue(
+                    "the widget's image component must be drawn into the preview (found $magentaPixels marker pixels)",
+                    magentaPixels > 0
+                )
+            }
             File(outDir, "$name.png").outputStream().use { out ->
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
             }
@@ -168,6 +203,14 @@ class WidgetPreviewRendererTest {
 
     private companion object {
         /** Built-in fixture: a realistic shopping widget (no WidgetSpec -> nothing to render). */
+        /** Real decoder, restored after each test. */
+        val DEFAULT_DECODER: (File) -> android.graphics.Bitmap? = { file ->
+            runCatching {
+                val bytes = file.readBytes()
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            }.getOrNull()
+        }
+
         val FIXTURE = """
         {
           "serverTime": 1,
@@ -181,12 +224,14 @@ class WidgetPreviewRendererTest {
                   { "kind": "text", "text": "Shopping", "emphasis": "title" },
                   { "kind": "list", "dataset": "shopping", "maxItems": 4, "filter": "unchecked", "showRemainingCount": true },
                   { "kind": "progress", "dataset": "shopping", "label": "Done" },
+                  { "kind": "image", "assetId": "asset_fixture", "alt": "Logo" },
                   { "kind": "action", "label": "Open dashboard", "action": { "kind": "openDashboard" } }
                 ],
                 "datasets": ["shopping"]
               }
             }
           },
+          "assets": { "asset_fixture": "AQIDBA==" },
           "datasets": [
             {
               "id": "shopping",
