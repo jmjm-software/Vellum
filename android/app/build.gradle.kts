@@ -51,6 +51,11 @@ tasks.withType<Test>().configureEach {
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
     outputs.upToDateWhen { false }
+    // Each test class gets a fresh JVM: the widget preview renderer drives
+    // Glance's session machinery (WorkManager + long-lived coroutine scopes),
+    // and leftovers from it make the pure compose tests flaky within a shared
+    // JVM (kotlinx.coroutines.test.UncompletedCoroutinesError).
+    forkEvery = 1
 }
 
 dependencies {

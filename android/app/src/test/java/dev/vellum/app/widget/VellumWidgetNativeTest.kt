@@ -12,6 +12,7 @@ import dev.vellum.app.ShellStore
 import dev.vellum.app.dto.StateDto
 import java.io.File
 import java.util.Base64
+import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -35,6 +36,17 @@ import org.robolectric.annotation.GraphicsMode
 class VellumWidgetNativeTest {
 
     private val context: Context get() = ApplicationProvider.getApplicationContext()
+
+    @org.junit.After
+    fun restoreDecoderSeam() {
+        // Never leak the substituted decoder into another test.
+        WidgetImages.decode = { file ->
+            runCatching {
+                val bytes = file.readBytes()
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            }.getOrNull()
+        }
+    }
 
     /** Renders the real widget with the given fixture and app-widget size. */
     private fun renderWidget(

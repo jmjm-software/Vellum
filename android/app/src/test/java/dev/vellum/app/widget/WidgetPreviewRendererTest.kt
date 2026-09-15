@@ -108,7 +108,6 @@ class WidgetPreviewRendererTest {
 
             runBlocking { VellumWidget().update(context, AppWidgetId(appWidgetId)) }
             val view = awaitRemoteViews(appWidgetManager, appWidgetId)
-            assertTrue("RemoteViews must inflate for ${name}", view != null)
 
             view.measure(
                 View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
@@ -125,6 +124,10 @@ class WidgetPreviewRendererTest {
 
         val produced = sizes.map { File(outDir, "${it.first}.png") }.filter { it.exists() && it.length() > 0 }
         assertTrue("expected widget previews to be written to ${outDir.absolutePath}", produced.size == sizes.size)
+
+        // Do not leave a Glance session (and its coroutine scope) running: the
+        // next test class in the same JVM would inherit it.
+        runCatching { WorkManager.getInstance(context).cancelAllWork() }
     }
 
     /**
