@@ -154,6 +154,18 @@ in-process by the server and the preview worker. Consequences:
 
 ## CI
 
+Three path-filtered workflows, each with `concurrency` + `cancel-in-progress`, so a newer push
+cancels the running build of the same target and untouched targets are never rebuilt:
+
+| Workflow | Runs when | Produces |
+| --- | --- | --- |
+| `container` | `packages/**`, `Containerfile`, entrypoint, lockfiles change | dashboard service image (amd64 + arm64), e2e + MCP + widget-gate acceptance tests |
+| `widget-renderer` | `android/**`, widget renderer scripts or its Containerfile change | native widget renderer sidecar image (**amd64 only** — AAPT2 has no Linux arm64 build) + smoke test against the pushed image |
+| `android-apk` | `android/**` changes | APK (only when app sources changed — test-only changes just run the native widget tests) |
+
+Tag builds (`v*`) are never cancelled and always produce release artifacts.
+
+
 `.github/workflows/container.yml` runs the e2e + MCP acceptance suites on every push/PR,
 then builds **multi-arch images** (`linux/amd64` + `linux/arm64`) on native runners
 (no QEMU): each architecture pushes by digest, a merge job combines them into one

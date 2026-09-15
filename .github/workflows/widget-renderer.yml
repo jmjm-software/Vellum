@@ -1,0 +1,110 @@
+name: widget-renderer
+
+# Native launcher-widget renderer sidecar image.
+#
+# Path-filtered to its own inputs: pushing only documentation, web/server code
+# or the dashboard service never rebuilds this image.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - "android/**"
+      - "Containerfile.widget-renderer"
+      - "scripts/render-widget-previews.sh"
+      - "scripts/widget-renderer-server.mjs"
+      - "scripts/widget-renderer-smoke.mjs"
+      - ".github/workflows/widget-renderer.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "android/**"
+      - "Containerfile.widget-renderer"
+      - "scripts/render-widget-previews.sh"
+      - "scripts/widget-renderer-server.mjs"
+      - "scripts/widget-renderer-smoke.mjs"
+      - ".github/workflows/widget-renderer.yml"
+  workflow_dispatch:
+
+# A newer push cancels an in-flight build for the same ref (no wasted runners).
+# Tag/release builds are never cancelled.
+concurrency:
+  group: widget-renderer-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  REGISTRY: ghcr.io
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    name: build & push renderer image (amd64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute lowercase image name
+        id: image
+        run: echo "name=${GITHUB_REPOSITORY,,}-widget-renderer" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      # amd64 only: AAPT2 (needed to compile the module's resources during the
+      # image build) ships x86_64 Linux binaries only — there is no
+      # linux-aarch64 artifact for any AGP version. On arm64 hosts the image runs
+      # through emulation.
+      - name: Build${{ github.event_name != 'pull_request' && ' & push' || '' }} linux/amd64
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Containerfile.widget-renderer
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=widget-renderer
+          cache-to: type=gha,mode=max,scope=widget-renderer
+
+      # The image already renders the widget once during its build; this smoke
+      # test proves the *pushed* image serves real previews over HTTP.
+      - name: Smoke test pushed renderer image
+        if: github.event_name != 'pull_request'
+        run: |
+          SHORT="sha-$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          IMAGE="${REGISTRY}/${{ steps.image.outputs.name }}:${SHORT}"
+          docker run -d --name vellum-widget-renderer -p 8790:8790 "$IMAGE"
+          for i in $(seq 1 60); do
+            curl -sf localhost:8790/health > /dev/null && break
+            sleep 2
+          done
+          curl -sf localhost:8790/health
+          VELLUM_WIDGET_RENDERER_URL=http://localhost:8790 node scripts/widget-renderer-smoke.mjs
+
+      - name: Renderer logs on failure
+        if: failure()
+        run: docker logs vellum-widget-renderer --tail 100 || true

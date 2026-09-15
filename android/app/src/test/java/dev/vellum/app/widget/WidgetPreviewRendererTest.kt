@@ -75,6 +75,11 @@ class WidgetPreviewRendererTest {
         val state = ApiClient.json.decodeFromString<StateDto>(specJson)
         assertTrue("fixture must contain a widget spec", state.publication?.content?.widget != null)
 
+        // Only meaningful when the design actually has an image: the marker
+        // colour comes from the decoder seam, which only draws for image
+        // components (a design without one legitimately renders none).
+        val expectsImage = state.publication?.content?.widget?.components?.any { it.kind == "image" } == true
+
         var largeMarkers = 0
         for ((name, size) in sizes) {
             val (width, height) = size
@@ -83,10 +88,14 @@ class WidgetPreviewRendererTest {
         }
 
         // Pixel proof that the image component reached the widget.
-        assertTrue(
-            "the widget's image component must be drawn into the large preview (found $largeMarkers marker pixels)",
-            largeMarkers > 0
-        )
+        if (expectsImage) {
+            assertTrue(
+                "the widget's image component must be drawn into the large preview (found $largeMarkers marker pixels)",
+                largeMarkers > 0
+            )
+        } else {
+            assertTrue("a widget without an image must not paint marker pixels", largeMarkers == 0)
+        }
 
         val produced = sizes.map { File(outDir, "${it.first}.png") }.filter { it.exists() && it.length() > 0 }
         assertTrue("expected widget previews to be written to ${outDir.absolutePath}", produced.size == sizes.size)

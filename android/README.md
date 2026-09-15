@@ -120,6 +120,9 @@ bash scripts/stack-up.sh        # preview worker picks it up
 - Renderer output is real RemoteViews pixels (Robolectric native graphics). It is *not* a browser
   approximation; fidelity is high but the launcher's own chrome (padding, corner masks, dynamic
   colors) is not part of the image.
+- The sidecar image is published **amd64 only**: the Android resource compiler AAPT2 (needed to
+  build the module inside the image) has no Linux arm64 artifact for any AGP version. On arm64
+  hosts it runs through emulation.
 - The default service image has no JDK/Android SDK, so use the **sidecar image**
   (`Containerfile.widget-renderer` → `ghcr.io/<owner>/vellum-widget-renderer`) and point the worker
   at it with `VELLUM_WIDGET_RENDERER_URL=http://widget-renderer:8790` — `docker-compose.yml` wires
