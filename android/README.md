@@ -72,11 +72,29 @@ GitHub secret) can be added when you intend to distribute outside sideloading.
    offline banner; toggle an item offline → comes back after reconnect; long-press → add
    the Vellum widget → it renders the agent's widget design (title/count/items).
 
+## Widget review: what is covered where
+
+The publish pipeline's screenshot review covers the **dashboard targets only** (`phone-small`,
+`phone-large`, `desktop`) — a browser screenshot cannot validate a native widget (architecture
+§4/§7), so the widget is deliberately *not* faked into that review. What covers the widget today:
+
+| Layer | What it does | Runs where |
+| --- | --- | --- |
+| Design validation (server) | Widget-spec sanity warnings: component count, single-line text length, list `maxItems`, unknown assets, unknown datasets | every `dashboard_edit` |
+| Native widget tests | Renders the real Glance widget and asserts the node tree: designed components render, `filter: unchecked` hides done items, `maxItems` truncates, remaining count appears, the cached image renders (or a visible placeholder), starter fallback works | `./gradlew :app:testDebugUnitTest` and the `android-apk` CI job |
+| Device/emulator | True visual check of the launcher rendering | **not wired into the review loop yet** (see below) |
+
+Not yet implemented: a native widget **visual** review inside the guarded publish flow. That needs
+a renderer that can produce widget pixels (emulator or a device farm) as a separate worker that
+attaches screenshots to the review — the architecture anticipates this as "when widget editing is
+enabled, its preview path must exercise the native implementation".
+
 ## Known limitations (documented, not hidden)
 
 - **Widget preview is device-only.** The architecture's rule — widget preview must exercise the
   native implementation, never a browser screenshot — is honored by NOT offering a browser
-  preview for widgets. There is no `widget` entry in the preview-worker profiles.
+  preview for widgets. There is no `widget` entry in the preview-worker profiles; the native unit
+  tests above cover structure, not pixels.
 - Cleartext HTTP is permitted (`usesCleartextTraffic=true`) for self-hosted LAN servers; use
   HTTPS in production.
 - Image components in the widget render only from the prefetched cache (no lazy network load

@@ -7,6 +7,7 @@ import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
@@ -21,6 +22,7 @@ import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.action.actionStartActivity as actionStartActivityIntent
+import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.layout.Alignment
@@ -51,69 +53,95 @@ import java.io.File
 /**
  * Native launcher widget: an agent-designed compact presentation of the same
  * datasets (architecture §4). Deliberately small trusted catalogue:
- * text, metric, list, progress, image, approved actions.
+ * text, metric, list, progress, image, link, approved actions.
  *
- * Sizing: launchers disagree about cell dimensions, so item counts adapt to
- * the actual allocated size (LocalSize) instead of assuming a fixed grid.
+ * Visual language: one rounded card, 14dp padding (10dp when the host gives us
+ * little space), a strict type scale (title 15sp bold / body 13sp / caption
+ * 11sp), 8dp between components, hairline dividers between list rows, and
+ * pill-shaped action rows. Item counts adapt to the actual allocated size
+ * (LocalSize) because launchers disagree about cell dimensions.
  */
 class VellumWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        provideContent { WidgetContent() }
+        provideContent { VellumWidgetContent(remember { loadSnapshot(context) }) }
     }
 }
 
+/**
+ * Bitmap decoding seam. Robolectric's native-graphics mode can create and draw
+ * bitmaps but cannot decode image files, so tests substitute this with a fake
+ * decoder; production uses the real BitmapFactory path (identical to what the
+ * widget has always done).
+ */
+internal object WidgetImages {
+    var decode: (File) -> android.graphics.Bitmap? = { file ->
+        runCatching {
+            val bytes = file.readBytes()
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }.getOrNull()
+    }
+}
+
+internal fun loadSnapshot(context: Context): StateDto? =
+    ShellStore.cachedState(context)?.let { raw ->
+        runCatching { dev.vellum.app.ApiClient.json.decodeFromString<StateDto>(raw) }.getOrNull()
+    }
+
+/** The widget UI. Extracted so native unit tests can render it with a fixture. */
 @Composable
-private fun WidgetContent() {
+internal fun VellumWidgetContent(state: StateDto?) {
     val context = LocalContext.current
-    val state = remember { loadSnapshot(context) }
+    val size = LocalSize.current
+    val compact = size.height < 170.dp
+    val budget = when {
+        size.height < 130.dp -> 2
+        size.height < 200.dp -> 3
+        size.height < 300.dp -> 5
+        else -> 8
+    }
 
     Column(
         modifier = GlanceModifier
             .fillMaxSize()
-            .background(ColorProvider(Color(0xFF14181D)))
-            .padding(12.dp)
+            .background(ImageProvider(R.drawable.widget_background))
+            .padding(if (compact) 10.dp else 14.dp)
             .clickable(actionStartActivity<MainActivity>())
     ) {
         if (state == null) {
             Text(
                 text = context.getString(R.string.widget_loading),
-                style = TextStyle(color = ColorProvider(Color(0xFF9AA4AF)))
+                style = captionStyle()
             )
-        } else {
-            val size = LocalSize.current
-            val budget = when {
-                size.height < 200.dp -> 3
-                size.height < 300.dp -> 5
-                else -> 8
-            }
-            val spec = state.publication?.content?.widget
-            val components = when {
-                spec != null && spec.components.isNotEmpty() -> spec.components
-                // No agent-authored WidgetSpec yet: conservative starter
-                // presentation from the first list/metric dataset, so the
-                // launcher widget is useful on any dashboard and the agent can
-                // replace or refine it later. Architecture §4 keeps the widget
-                // a small presentation of the same datasets — this is the same
-                // renderer, driven by a synthesized spec.
-                else -> starterSpec(state)
-            }
-            for (component in components) {
-                Render(component, state, budget)
-            }
-            if (components.isEmpty()) {
-                Text(
-                    text = context.getString(R.string.widget_none),
-                    style = TextStyle(color = ColorProvider(Color(0xFF9AA4AF)))
-                )
-            }
+            return@Column
+        }
+
+        val spec = state.publication?.content?.widget
+        val components = when {
+            spec != null && spec.components.isNotEmpty() -> spec.components
+            // No agent-authored WidgetSpec yet: a conservative starter
+            // presentation from the first list/metric dataset, so the launcher
+            // widget is useful on any dashboard until an agent designs one.
+            else -> starterSpec(state)
+        }
+
+        if (components.isEmpty()) {
+            Text(text = context.getString(R.string.widget_none), style = captionStyle())
+            return@Column
+        }
+
+        var first = true
+        for (component in components) {
+            if (component.kind == "action" && compact && budget <= 2) continue // keep the essentials when tiny
+            if (!first) Spacer(GlanceModifier.height(8.dp))
+            first = false
+            Render(component, state, budget)
         }
     }
 }
 
-/** Starter presentation chosen from the dashboard's own data (used only when
- *  the published design carries no WidgetSpec). */
-private fun starterSpec(state: StateDto): List<WidgetComponentDto> {
+/** Starter presentation chosen from the dashboard's own data (no WidgetSpec). */
+internal fun starterSpec(state: StateDto): List<WidgetComponentDto> {
     val openAction = WidgetComponentDto(
         kind = "action",
         label = "Open dashboard",
@@ -141,10 +169,30 @@ private fun starterSpec(state: StateDto): List<WidgetComponentDto> {
     return emptyList()
 }
 
-private fun loadSnapshot(context: Context): StateDto? =
-    ShellStore.cachedState(context)?.let { raw ->
-        runCatching { dev.vellum.app.ApiClient.json.decodeFromString<StateDto>(raw) }.getOrNull()
-    }
+// --- type scale ---------------------------------------------------------------
+
+private fun titleStyle() = TextStyle(
+    color = ColorProvider(Color(0xFFF2F4F7)),
+    fontWeight = FontWeight.Bold,
+    fontSize = 15.sp
+)
+
+private fun bodyStyle(done: Boolean = false) = TextStyle(
+    color = ColorProvider(if (done) Color(0xFF6E7781) else Color(0xFFE6E9EC)),
+    fontSize = 13.sp
+)
+
+private fun captionStyle() = TextStyle(color = ColorProvider(Color(0xFF9AA4AF)), fontSize = 11.sp)
+
+private fun accentStyle() = TextStyle(
+    color = ColorProvider(Color(0xFF8AB4F8)),
+    fontSize = 13.sp,
+    fontWeight = FontWeight.Medium
+)
+
+private val DIVIDER = Color(0xFF232A31)
+
+// --- rendering -----------------------------------------------------------------
 
 @Composable
 private fun Render(component: WidgetComponentDto, state: StateDto, budget: Int) {
@@ -158,52 +206,76 @@ private fun Render(component: WidgetComponentDto, state: StateDto, budget: Int) 
         "action" -> WidgetAction(component)
         else -> Unit // unknown widget kinds render nothing (forward compat)
     }
-    Spacer(modifier = GlanceModifier.height(6.dp))
 }
-
-// --- catalogue ---------------------------------------------------------------
 
 @Composable
 private fun WidgetText(component: WidgetComponentDto) {
     val style = when (component.emphasis) {
-        "title" -> TextStyle(color = ColorProvider(Color.White), fontWeight = FontWeight.Bold, fontSize = 16.sp)
-        "caption" -> TextStyle(color = ColorProvider(Color(0xFF9AA4AF)), fontSize = 11.sp)
-        else -> TextStyle(color = ColorProvider(Color(0xFFE6E9EC)), fontSize = 13.sp)
+        "title" -> titleStyle()
+        "caption" -> captionStyle()
+        else -> bodyStyle()
     }
-    Text(text = component.text.orEmpty(), style = style)
+    Text(text = component.text.orEmpty(), style = style, maxLines = if (component.emphasis == "caption") 2 else 1)
 }
 
 @Composable
 private fun WidgetMetric(component: WidgetComponentDto, state: StateDto) {
     val dataset = state.datasets.firstOrNull { it.id == component.dataset }
     val value = dataset?.value?.values?.get(component.field.orEmpty())
-    Row(verticalAlignment = Alignment.Vertical.CenterVertically) {
+    Column {
         if (component.label != null) {
-            Text(component.label, style = TextStyle(color = ColorProvider(Color(0xFF9AA4AF))))
-            Spacer(GlanceModifier.size(6.dp))
+            Text(component.label, style = captionStyle(), maxLines = 1)
+            Spacer(GlanceModifier.height(2.dp))
         }
-        Text(
-            text = (value?.let { formatNumber(it) } ?: "—") + (component.unit?.let { " $it" } ?: ""),
-            style = TextStyle(color = ColorProvider(Color.White), fontWeight = FontWeight.Bold)
-        )
+        Row(verticalAlignment = Alignment.Vertical.Bottom) {
+            Text(
+                text = value?.let { formatNumber(it) } ?: "—",
+                style = TextStyle(color = ColorProvider(Color(0xFFF2F4F7)), fontWeight = FontWeight.Bold, fontSize = 20.sp),
+                maxLines = 1
+            )
+            if (component.unit != null) {
+                Spacer(GlanceModifier.size(4.dp))
+                Text(component.unit, style = captionStyle(), maxLines = 1)
+            }
+        }
     }
 }
 
 @Composable
 private fun WidgetList(component: WidgetComponentDto, state: StateDto, budget: Int) {
     val dataset = state.datasets.firstOrNull { it.id == component.dataset }
-    val items = dataset?.value?.items.orEmpty()
-        .let { if (component.filter == "unchecked") it.filter { item -> !item.done } else it }
-    val max = minOf(component.maxItems ?: 4, budget)
-    for (item in items.take(max)) {
-        ListRow(item, component)
-    }
-    if (component.showRemainingCount == true && items.size > max) {
+    val all = dataset?.value?.items.orEmpty()
+    val items = if (component.filter == "unchecked") all.filter { !it.done } else all
+    if (items.isEmpty()) {
         Text(
-            "+${items.size - max} more",
-            style = TextStyle(color = ColorProvider(Color(0xFF9AA4AF)))
+            text = if (all.isNotEmpty()) "All done" else "Nothing here yet",
+            style = captionStyle(),
+            maxLines = 1
         )
+        return
     }
+    val max = minOf(component.maxItems ?: 4, budget, items.size)
+    Column {
+        for (i in 0 until max) {
+            if (i > 0) Divider()
+            ListRow(items[i], component)
+        }
+        val remaining = items.size - max
+        if (component.showRemainingCount == true && remaining > 0) {
+            Spacer(GlanceModifier.height(4.dp))
+            Text("+$remaining more", style = captionStyle(), maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun Divider() {
+    Spacer(
+        modifier = GlanceModifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(ColorProvider(DIVIDER))
+    )
 }
 
 @Composable
@@ -219,18 +291,19 @@ private fun ListRow(item: ListItemDto, component: WidgetComponentDto) {
                     )
                 )
             )
-            .padding(vertical = 2.dp),
+            .padding(vertical = 5.dp),
         verticalAlignment = Alignment.Vertical.CenterVertically
     ) {
         Text(
-            text = if (item.done) "✓ " else "• ",
-            style = TextStyle(color = ColorProvider(if (item.done) Color(0xFF4C8BF5) else Color(0xFF9AA4AF)))
+            text = if (item.done) "✓" else "•",
+            style = TextStyle(
+                color = ColorProvider(if (item.done) Color(0xFF4C8BF5) else Color(0xFF5B8DEF)),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold
+            )
         )
-        Text(
-            text = item.label,
-            style = TextStyle(color = ColorProvider(if (item.done) Color(0xFF7B8590) else Color(0xFFE6E9EC))),
-            maxLines = 1
-        )
+        Spacer(GlanceModifier.size(8.dp))
+        Text(text = item.label, style = bodyStyle(item.done), maxLines = 1)
     }
 }
 
@@ -240,17 +313,26 @@ private fun WidgetProgress(component: WidgetComponentDto, state: StateDto) {
     val items = dataset?.value?.items.orEmpty()
     val done = items.count { it.done }
     val total = items.size
-    if (component.label != null) {
-        Text(component.label, style = TextStyle(color = ColorProvider(Color(0xFF9AA4AF))))
+    Column {
+        if (component.label != null) {
+            Text(component.label, style = captionStyle(), maxLines = 1)
+            Spacer(GlanceModifier.height(2.dp))
+        }
+        Text(
+            text = "$done / $total",
+            style = TextStyle(color = ColorProvider(Color(0xFFF2F4F7)), fontWeight = FontWeight.Bold, fontSize = 15.sp),
+            maxLines = 1
+        )
+        Spacer(GlanceModifier.height(4.dp))
+        // Deterministic block bar (this Glance version has no fraction sizing).
+        val blocks = 10
+        val filled = if (total > 0) (done.toFloat() / total * blocks).toInt().coerceIn(0, blocks) else 0
+        Text(
+            text = "▰".repeat(filled) + "▱".repeat(blocks - filled),
+            style = TextStyle(color = ColorProvider(Color(0xFF4C8BF5)), fontSize = 11.sp),
+            maxLines = 1
+        )
     }
-    Text("$done / $total", style = TextStyle(color = ColorProvider(Color.White)))
-    // Deterministic block bar (this Glance version has no fraction-based sizing).
-    val blocks = 10
-    val filled = if (total > 0) (done.toFloat() / total * blocks).toInt().coerceIn(0, blocks) else 0
-    Text(
-        text = "▰".repeat(filled) + "▱".repeat(blocks - filled),
-        style = TextStyle(color = ColorProvider(Color(0xFF4C8BF5)))
-    )
 }
 
 @Composable
@@ -258,24 +340,19 @@ private fun WidgetImage(component: WidgetComponentDto) {
     val context = LocalContext.current
     val assetId = component.assetId ?: return
     val file = File(ShellStore.widgetAssetDir(context), assetId)
-    val bitmap = if (file.exists()) runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull() else null
+    val bitmap = if (file.exists()) WidgetImages.decode(file) else null
     if (bitmap == null) {
         // Visible placeholder rather than silently rendering nothing: the bytes
-        // are prefetched by WidgetUpdateWorker, so a missing file means the
-        // last sync could not fetch it (offline, revoked token, ...).
+        // are prefetched by WidgetUpdateWorker, so a missing file means the last
+        // sync could not fetch it (offline, revoked token, ...).
         Box(
             modifier = GlanceModifier
                 .fillMaxWidth()
-                .height(40.dp)
-                .background(ColorProvider(Color(0xFF232A31)))
-                .padding(8.dp),
+                .height(48.dp)
+                .background(ImageProvider(R.drawable.widget_action)),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = component.alt ?: "image",
-                style = TextStyle(color = ColorProvider(Color(0xFF9AA4AF))),
-                maxLines = 1
-            )
+            Text(text = component.alt ?: "image", style = captionStyle(), maxLines = 1)
         }
         return
     }
@@ -288,6 +365,7 @@ private fun WidgetImage(component: WidgetComponentDto) {
         modifier = GlanceModifier
             .fillMaxWidth()
             .height(96.dp)
+            .cornerRadius(12.dp)
     )
 }
 
@@ -295,34 +373,22 @@ private fun WidgetImage(component: WidgetComponentDto) {
 private fun WidgetLink(component: WidgetComponentDto) {
     val href = component.href ?: return
     if (!ExternalLinks.isSafe(href)) return
-    Row(
-        modifier = GlanceModifier
-            .fillMaxWidth()
-            .clickable(
-                actionStartActivityIntent(
-                    Intent(Intent.ACTION_VIEW, Uri.parse(href)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
+    PillRow(
+        modifier = GlanceModifier.clickable(
+            actionStartActivityIntent(
+                Intent(Intent.ACTION_VIEW, Uri.parse(href)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
-            .padding(vertical = 2.dp),
-        verticalAlignment = Alignment.Vertical.CenterVertically
-    ) {
-        Text(
-            text = (component.label ?: href) + " ↗",
-            style = TextStyle(color = ColorProvider(Color(0xFF8AB4F8)))
-        )
-    }
+        ),
+        label = (component.label ?: href) + " ↗"
+    )
 }
 
 @Composable
 private fun WidgetAction(component: WidgetComponentDto) {
     val action = component.action ?: return
-    val base = GlanceModifier
-        .fillMaxWidth()
-        .background(ColorProvider(Color(0xFF232A31)))
-        .padding(8.dp)
     val modifier = when (action.kind) {
-        "openDashboard" -> base.clickable(actionStartActivity<MainActivity>())
-        "toggleItem" -> base.clickable(
+        "openDashboard" -> GlanceModifier.clickable(actionStartActivity<MainActivity>())
+        "toggleItem" -> GlanceModifier.clickable(
             actionRunCallback<PerformToggle>(
                 actionParametersOf(
                     PerformToggle.KEY_DATASET to action.dataset.orEmpty(),
@@ -330,25 +396,43 @@ private fun WidgetAction(component: WidgetComponentDto) {
                 )
             )
         )
-        "event" -> base.clickable(
+        "event" -> GlanceModifier.clickable(
             actionRunCallback<PerformEvent>(
                 actionParametersOf(PerformEvent.KEY_TYPE to action.type.orEmpty())
             )
         )
         "openUrl" -> {
             val href = action.href.orEmpty()
-            if (!ExternalLinks.isSafe(href)) base else base.clickable(
+            if (!ExternalLinks.isSafe(href)) GlanceModifier
+            else GlanceModifier.clickable(
                 actionStartActivityIntent(
                     Intent(Intent.ACTION_VIEW, Uri.parse(href)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 )
             )
         }
-        else -> base
+        else -> GlanceModifier
     }
-    Row(modifier = modifier) {
-        Text(component.label.orEmpty(), style = TextStyle(color = ColorProvider(Color(0xFF8AB4F8))))
+    PillRow(modifier = modifier, label = component.label.orEmpty())
+}
+
+@Composable
+private fun PillRow(modifier: GlanceModifier, label: String) {
+    Row(
+        modifier = GlanceModifier
+            .fillMaxWidth()
+            .background(ImageProvider(R.drawable.widget_action))
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .then(modifier),
+        verticalAlignment = Alignment.Vertical.CenterVertically,
+        horizontalAlignment = Alignment.Horizontal.CenterHorizontally
+    ) {
+        Text(text = label, style = accentStyle(), maxLines = 1)
     }
 }
 
 private fun formatNumber(v: Double): String =
     if (v == Math.floor(v) && !v.isInfinite()) v.toLong().toString() else String.format("%.1f", v)
+
+/** Sizes used by the native widget tests (4x2 launcher cell ≈ 250x140dp). */
+internal val TEST_WIDGET_SMALL = DpSize(250.dp, 140.dp)
+internal val TEST_WIDGET_LARGE = DpSize(320.dp, 320.dp)

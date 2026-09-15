@@ -195,6 +195,49 @@ export function validateDesign(input: unknown, opts: ValidateDesignOptions = {})
   // Widget bindings count as declared too.
   if (content.widget) {
     for (const ds of content.widget.datasets) declared.add(ds);
+
+    // Launcher-surface sanity: the widget is a tiny, single-line, no-scroll
+    // surface. These are warnings (the agent decides), but they are exactly the
+    // things that make a widget look wrong — and the widget is not covered by
+    // the screenshot review, so feedback has to come from here.
+    const widget = content.widget;
+    if (widget.components.length > 6) {
+      diagnostics.push({
+        severity: "warning",
+        code: "widget_too_many_components",
+        message: `widget has ${widget.components.length} components; launcher widgets read best with ≤6 (title, one list, maybe a metric/image, one action)`
+      });
+    }
+    for (const component of widget.components) {
+      if (component.kind === "text" && component.emphasis !== "caption" && component.text.length > 40) {
+        diagnostics.push({
+          severity: "warning",
+          code: "widget_text_too_long",
+          message: `widget text "${component.text.slice(0, 24)}…" is ${component.text.length} chars; widget text is single-line — keep it short or move detail to the dashboard`
+        });
+      }
+      if (component.kind === "link" && component.label.length > 40) {
+        diagnostics.push({
+          severity: "warning",
+          code: "widget_text_too_long",
+          message: "widget link label is long; widget rows are single-line"
+        });
+      }
+      if (component.kind === "action" && component.label.length > 40) {
+        diagnostics.push({
+          severity: "warning",
+          code: "widget_text_too_long",
+          message: "widget action label is long; widget rows are single-line"
+        });
+      }
+      if (component.kind === "list" && component.maxItems > 6) {
+        diagnostics.push({
+          severity: "warning",
+          code: "widget_list_long",
+          message: `widget list maxItems=${component.maxItems}; more than ~6 items will not fit on a launcher widget (use showRemainingCount and let the dashboard show the rest)`
+        });
+      }
+    }
     if (opts.knownAssets) {
       for (const component of content.widget.components) {
         if (component.kind === "image" && !opts.knownAssets.has(component.assetId)) {

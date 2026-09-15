@@ -153,6 +153,13 @@ node scripts/check-live-image.mjs              # real-browser check: uploaded im
 node scripts/publish-widget.mjs shopping       # guarded flow: add an agent-designed widget spec
 ```
 
+## What the review covers
+
+| Surface | Review evidence |
+| --- | --- |
+| Dashboard (phone/desktop) | Playwright screenshots per profile + overflow/runtime/interaction diagnostics, bound to the exact draft version; publish is gated on the review |
+| Launcher widget | **Not** part of the screenshot review (a browser screenshot cannot validate a native widget). Covered by design-time widget-spec validation plus native Glance widget tests in CI; a pixel-level widget review needs a native renderer worker |
+
 ## Security notes
 
 - Agent-authored documents and imported data are untrusted: everything is schema-validated

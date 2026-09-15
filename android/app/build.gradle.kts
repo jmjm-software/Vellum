@@ -17,8 +17,8 @@ android {
         // over an existing app when the versionCode increases (otherwise the
         // install fails and the old app must be uninstalled first).
         // versionName is the human-readable counterpart.
-        versionCode = 6
-        versionName = "0.1.5"
+        versionCode = 7
+        versionName = "0.1.6"
     }
 
     buildTypes {
@@ -37,6 +37,10 @@ android {
     buildFeatures {
         compose = true
     }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -51,4 +55,13 @@ dependencies {
 
     // Glance launcher widgets (widget-specific APIs, deliberately not full Compose UI)
     implementation("androidx.glance:glance-appwidget:1.1.1")
+
+    // Native widget rendering tests (Robolectric + Glance's own test harness):
+    // they render the real RemoteViews tree, no emulator and no browser stand-in.
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
+    testImplementation("androidx.glance:glance-appwidget-testing:1.1.1")
+    testImplementation("androidx.glance:glance-testing:1.1.1")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
 }
