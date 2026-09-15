@@ -1,0 +1,49 @@
+# Turnkey local deployment: dashboard service + native widget renderer sidecar.
+#
+#   docker compose up -d --build
+#   open http://localhost:8787/?token=<VELLUM_CLIENT_TOKEN>
+#
+# The sidecar exists because rendering the native launcher widget needs a JDK and
+# the Android SDK, which the service image deliberately does not carry. With it
+# attached, every design containing a widget presentation gets real widget
+# screenshots in its preview review (and a failed render blocks publication).
+services:
+  vellum:
+    build:
+      context: .
+      dockerfile: Containerfile
+    image: ghcr.io/jmjm-software/vellum:latest
+    ports:
+      - "8787:8787"
+    environment:
+      VELLUM_CLIENT_TOKEN: ${VELLUM_CLIENT_TOKEN:-client-dev-token}
+      VELLUM_AGENT_TOKEN: ${VELLUM_AGENT_TOKEN:-agent-dev-token}
+      VELLUM_WIDGET_RENDERER_URL: http://widget-renderer:8790
+      # Set to 0 to let a flaky renderer only warn instead of blocking publishes.
+      VELLUM_REQUIRE_WIDGET_REVIEW: ${VELLUM_REQUIRE_WIDGET_REVIEW:-1}
+    volumes:
+      - vellum-data:/data
+    depends_on:
+      widget-renderer:
+        condition: service_healthy
+    restart: unless-stopped
+
+  widget-renderer:
+    build:
+      context: .
+      dockerfile: Containerfile.widget-renderer
+    image: ghcr.io/jmjm-software/vellum-widget-renderer:latest
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8790/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    volumes:
+      # Warm Gradle build directory: keeps incremental widget renders fast.
+      - widget-gradle-build:/renderer/android/app/build
+    restart: unless-stopped
+
+volumes:
+  vellum-data:
+  widget-gradle-build:

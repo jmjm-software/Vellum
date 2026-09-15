@@ -52,6 +52,12 @@ const clientToken = process.env.VELLUM_CLIENT_TOKEN ?? "client-dev-token";
 // unset, widget designs are published without a visual review — and the review
 // says so explicitly instead of pretending otherwise.
 const widgetRendererCmd = process.env.VELLUM_WIDGET_RENDERER_CMD ?? "";
+// Sidecar renderer (preferred in containers: no JDK/Android SDK needed here).
+const widgetRendererUrl = process.env.VELLUM_WIDGET_RENDERER_URL ?? "";
+// When a renderer is configured but fails, publication is blocked by default.
+// Set VELLUM_REQUIRE_WIDGET_REVIEW=0 to downgrade widget failures to warnings
+// (e.g. a flaky sidecar you do not want to gate on).
+const requireWidgetReview = (process.env.VELLUM_REQUIRE_WIDGET_REVIEW ?? "1") !== "0";
 const pollIntervalMs = Number(process.env.VELLUM_POLL_INTERVAL_MS ?? 2000);
 const jobTimeoutMs = Number(process.env.VELLUM_JOB_TIMEOUT_MS ?? 240_000); // ~4 min
 
@@ -172,9 +178,10 @@ async function runJob(job: PreviewJobRow): Promise<void> {
   // reported as unreviewed (never silently skipped).
   const hasWidgetDesign = (content.widget?.components?.length ?? 0) > 0;
   if (hasWidgetDesign) {
-    if (widgetRendererCmd) {
+    if (widgetRendererCmd || widgetRendererUrl) {
       const widgetResult = await renderWidgetPreviews(
         widgetRendererCmd,
+        widgetRendererUrl || undefined,
         rendererUrl,
         reviewId,
         artifactDir,
@@ -182,14 +189,18 @@ async function runJob(job: PreviewJobRow): Promise<void> {
         datasets,
         inlined.assets
       );
-      diagnostics.push(...widgetResult.diagnostics);
+      diagnostics.push(
+        ...(requireWidgetReview
+          ? widgetResult.diagnostics
+          : widgetResult.diagnostics.map((d) => (d.severity === "error" ? { ...d, severity: "warning" as const } : d)))
+      );
       screenshots.push(...widgetResult.screenshots);
     } else {
       diagnostics.push({
         severity: "warning",
         code: "widget_preview_unavailable",
         message:
-          "this design includes a launcher-widget presentation, but no native widget renderer is configured (VELLUM_WIDGET_RENDERER_CMD) — the widget was not visually reviewed",
+          "this design includes a launcher-widget presentation, but no native widget renderer is configured (VELLUM_WIDGET_RENDERER_URL / VELLUM_WIDGET_RENDERER_CMD) — the widget was not visually reviewed",
         target: "widget"
       });
     }
@@ -300,12 +311,14 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 async function main(): Promise<void> {
   console.log(
     `[preview-worker] polling every ${pollIntervalMs}ms; renderer=${rendererUrl}; artifacts=${artifactDir}` +
-      `; widgetRenderer=${widgetRendererCmd ? "configured" : "none"}`
+      `; widgetRenderer=${
+        widgetRendererUrl ? `sidecar ${widgetRendererUrl}` : widgetRendererCmd ? "command" : "none"
+      }`
   );
   // Publish the capability so dashboard_context can tell the agent whether a
   // widget design will actually be reviewed before it publishes.
   try {
-    setMeta("widget_renderer", widgetRendererCmd ? "available" : "unavailable");
+    setMeta("widget_renderer", widgetRendererCmd || widgetRendererUrl ? "available" : "unavailable");
     setMeta("widget_renderer_checked_at", String(Date.now()));
   } catch (err) {
     console.error(`[preview-worker] could not record widget renderer capability: ${err}`);

@@ -502,15 +502,19 @@ export interface WidgetPreviewResult {
 }
 
 /**
- * Renders the launcher widget natively via an external renderer command
- * (VELLUM_WIDGET_RENDERER_CMD). The command receives a spec JSON path and an
- * output directory and must write widget-*.png files.
+ * Renders the launcher widget natively.
+ *
+ * Two transports, same semantics:
+ *  - `url` (sidecar): POST the spec to the renderer service (preferred in
+ *    containers — the service image has no JDK/Android SDK).
+ *  - `command`: run a local renderer command with (specPath, outDir).
  *
  * A failure is an error diagnostic: the review then fails and publication is
  * blocked, which is the point — an unreviewed widget must not ship silently.
  */
 export async function renderWidgetPreviews(
   command: string,
+  widgetRendererUrl: string | undefined,
   serverUrl: string,
   reviewId: string,
   artifactDir: string,
@@ -544,6 +548,51 @@ export async function renderWidgetPreviews(
     assets
   };
   writeFileSync(specPath, JSON.stringify(spec));
+
+  // Sidecar transport: the renderer runs where the Android toolchain lives.
+  if (widgetRendererUrl) {
+    try {
+      const res = await fetch(`${widgetRendererUrl.replace(/\/$/, "")}/render`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ spec }),
+        signal: AbortSignal.timeout(timeoutMs)
+      });
+      const body = (await res.json().catch(() => ({}))) as { files?: { name: string; base64: string }[]; error?: string };
+      if (!res.ok || !body.files || body.files.length === 0) {
+        diagnostics.push({
+          severity: "error",
+          code: "widget_render_failed",
+          message: `native widget renderer service failed (HTTP ${res.status}${body.error ? `: ${body.error}` : ""})`,
+          target: "widget"
+        });
+        return { screenshots, diagnostics };
+      }
+      for (const file of body.files) {
+        const safeName = file.name.replace(/[^A-Za-z0-9._-]/g, "_");
+        const absPath = join(widgetDir, safeName);
+        const buf = Buffer.from(file.base64, "base64");
+        writeFileSync(absPath, buf);
+        const size = pngSize(buf);
+        screenshots.push({
+          profile: safeName.replace(/\.png$/, ""),
+          target: "widget",
+          path: relative(artifactDir, absPath),
+          width: size.width,
+          height: size.height
+        });
+      }
+      return { screenshots, diagnostics: [...diagnostics, ...widgetDesignDiagnostics(content, datasets)] };
+    } catch (err) {
+      diagnostics.push({
+        severity: "error",
+        code: "widget_render_failed",
+        message: `native widget renderer service unreachable: ${err instanceof Error ? err.message : String(err)}`,
+        target: "widget"
+      });
+      return { screenshots, diagnostics };
+    }
+  }
 
   const { spawn } = await import("node:child_process");
   const child = spawn("sh", ["-c", `${command} "${specPath}" "${widgetDir}"`], {
@@ -597,9 +646,17 @@ export async function renderWidgetPreviews(
     });
   }
 
-  // The widget is a constrained surface; flag what a launcher will actually do
-  // to the design (truncation is the usual complaint).
-  const widget = content.widget!;
+  return { screenshots, diagnostics: [...diagnostics, ...widgetDesignDiagnostics(content, datasets)] };
+}
+
+/**
+ * The widget is a constrained surface; flag what a launcher will actually do to
+ * the design (truncation is the usual complaint).
+ */
+function widgetDesignDiagnostics(content: DesignContent, datasets: Dataset[]): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  const widget = content.widget;
+  if (!widget) return diagnostics;
   const listComponents = widget.components.filter((c) => c.kind === "list");
   for (const [index, component] of listComponents.entries()) {
     const dataset = datasets.find((d) => d.id === component.dataset);
@@ -616,6 +673,5 @@ export async function renderWidgetPreviews(
       });
     }
   }
-
-  return { screenshots, diagnostics };
+  return diagnostics;
 }

@@ -45,6 +45,26 @@ jobs:
           node scripts/e2e.mjs
           bash scripts/stack-down.sh
 
+      - name: E2E acceptance suite (native widget review via stub renderer)
+        run: |
+          export VELLUM_WIDGET_RENDERER_CMD="$PWD/scripts/widget-renderer-stub.sh"
+          bash scripts/stack-up.sh /tmp/vellum-ci-widget
+          node scripts/e2e.mjs
+          bash scripts/stack-down.sh
+
+      - name: Widget review gate blocks publish when the renderer fails
+        run: |
+          export VELLUM_WIDGET_RENDERER_CMD="$PWD/scripts/widget-renderer-stub.sh"
+          export VELLUM_STUB_FAIL=1
+          bash scripts/stack-up.sh /tmp/vellum-ci-gate
+          if node scripts/e2e.mjs; then
+            echo "::error::a failing widget renderer did not block publication"
+            bash scripts/stack-down.sh
+            exit 1
+          fi
+          bash scripts/stack-down.sh
+          echo "gate OK: failing widget render produced a failed review"
+
       - name: MCP integration test
         env:
           VELLUM_DATA_DIR: /tmp/vellum-ci-mcp
@@ -54,20 +74,28 @@ jobs:
           bash scripts/stack-down.sh
 
   # ---------------------------------------------------------------------------
-  # Build one architecture per job (native runners, no QEMU), push by digest
+  # Two images (dashboard service, native widget renderer) x two architectures,
+  # one job each (native runners, no QEMU), pushed by digest.
   # ---------------------------------------------------------------------------
   image:
-    name: build linux/${{ matrix.arch }}
+    name: build ${{ matrix.target.slug }} linux/${{ matrix.arch.arch }}
     needs: test
     strategy:
       fail-fast: false
       matrix:
-        include:
+        target:
+          - slug: service
+            suffix: ""
+            dockerfile: Containerfile
+          - slug: widget-renderer
+            suffix: "-widget-renderer"
+            dockerfile: Containerfile.widget-renderer
+        arch:
           - arch: amd64
             runner: ubuntu-latest
           - arch: arm64
             runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.arch.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -75,7 +103,7 @@ jobs:
       # original case (e.g. jmjm-software/Vellum).
       - name: Compute lowercase image name
         id: image
-        run: echo "name=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+        run: echo "name=${GITHUB_REPOSITORY,,}${{ matrix.target.suffix }}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -93,16 +121,16 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
 
-      - name: Build linux/${{ matrix.arch }}${{ github.event_name != 'pull_request' && ' & push by digest' || '' }}
+      - name: Build ${{ matrix.target.slug }} linux/${{ matrix.arch.arch }}${{ github.event_name != 'pull_request' && ' & push by digest' || '' }}
         id: build
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Containerfile
-          platforms: linux/${{ matrix.arch }}
+          file: ${{ matrix.target.dockerfile }}
+          platforms: linux/${{ matrix.arch.arch }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=build-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=build-${{ matrix.arch }}
+          cache-from: type=gha,scope=${{ matrix.target.slug }}-${{ matrix.arch.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target.slug }}-${{ matrix.arch.arch }}
           outputs: ${{ github.event_name != 'pull_request' && format('type=image,name={0}/{1},push-by-digest=true,push=true', env.REGISTRY, steps.image.outputs.name) || '' }}
 
       - name: Export digest
@@ -115,19 +143,29 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request'
         with:
-          name: digests-${{ matrix.arch }}
+          name: digests-${{ matrix.target.slug }}-${{ matrix.arch.arch }}
           path: /tmp/digests/*
           if-no-files-found: error
           retention-days: 1
 
   # ---------------------------------------------------------------------------
-  # Merge per-arch digests into one multi-arch manifest list, tag it, smoke it
+  # Merge per-arch digests into one multi-arch manifest list per image, tag it,
+  # then smoke the service image (the renderer image is validated by its build,
+  # which renders the widget once with the built-in fixture).
   # ---------------------------------------------------------------------------
   manifest:
-    name: merge manifest + smoke (amd64)
+    name: merge manifest ${{ matrix.target.slug }} + smoke (amd64)
     runs-on: ubuntu-latest
     needs: image
     if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - slug: service
+            suffix: ""
+          - slug: widget-renderer
+            suffix: "-widget-renderer"
     steps:
       - uses: actions/checkout@v4
 
@@ -137,7 +175,7 @@ jobs:
 
       - name: Compute lowercase image name
         id: image
-        run: echo "name=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+        run: echo "name=${GITHUB_REPOSITORY,,}${{ matrix.target.suffix }}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -150,7 +188,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          pattern: digests-*
+          pattern: digests-${{ matrix.target.slug }}-*
           merge-multiple: true
           path: /tmp/digests
 
@@ -167,7 +205,7 @@ jobs:
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Create and push multi-arch manifest list
+      - name: Create and push multi-arch manifest list (${{ matrix.target.slug }})
         working-directory: /tmp/digests
         env:
           DOCKER_METADATA_OUTPUT_JSON: ${{ steps.meta.outputs.json }}
@@ -177,9 +215,10 @@ jobs:
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf 'sha256:%s ' *)
 
-      # Smoke-test the pushed multi-arch tag: on this amd64 runner the daemon
+      # Smoke-test the pushed service image: on this amd64 runner the daemon
       # resolves the amd64 manifest; the arm64 manifest is smoked separately.
-      - name: Smoke test pushed image (amd64)
+      - name: Smoke test pushed service image (amd64)
+        if: matrix.target.slug == 'service'
         run: |
           SHORT="sha-$(echo "${GITHUB_SHA}" | cut -c1-7)"
           docker run -d --name vellum-smoke -p 8787:8787 "${REGISTRY}/${{ steps.image.outputs.name }}:${SHORT}"
@@ -192,11 +231,11 @@ jobs:
           docker logs vellum-smoke --tail 40
 
       - name: Container logs on failure
-        if: failure()
+        if: failure() && matrix.target.slug == 'service'
         run: docker logs vellum-smoke --tail 200 || true
 
   # ---------------------------------------------------------------------------
-  # The arm64 manifest runs chromium + better-sqlite3 natively: smoke it too
+  # The arm64 service manifest runs chromium + better-sqlite3 natively: smoke it too
   # ---------------------------------------------------------------------------
   smoke-arm64:
     name: smoke (arm64)

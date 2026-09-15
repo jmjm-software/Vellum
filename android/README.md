@@ -102,8 +102,11 @@ bash scripts/stack-up.sh        # preview worker picks it up
 - Renderer output is real RemoteViews pixels (Robolectric native graphics). It is *not* a browser
   approximation; fidelity is high but the launcher's own chrome (padding, corner masks, dynamic
   colors) is not part of the image.
-- The default container image has no JDK/Android SDK, so a self-hosted deployment either runs the
-  renderer where that toolchain exists or uses the CI artifacts.
+- The default service image has no JDK/Android SDK, so use the **sidecar image**
+  (`Containerfile.widget-renderer` → `ghcr.io/<owner>/vellum-widget-renderer`) and point the worker
+  at it with `VELLUM_WIDGET_RENDERER_URL=http://widget-renderer:8790` — `docker-compose.yml` wires
+  both together: `docker compose up -d --build`. Alternatively run the renderer where the toolchain
+  exists (`VELLUM_WIDGET_RENDERER_CMD`) or use the CI artifacts.
 
 ## Known limitations (documented, not hidden)
 

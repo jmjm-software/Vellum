@@ -75,6 +75,9 @@ Environment variables:
 | `VELLUM_CLIENT_TOKEN` | `client-dev-token` | Client read/action bearer token |
 | `VELLUM_AGENT_TOKEN` | `agent-dev-token` | Agent edit/publish bearer token |
 | `VELLUM_RENDERER_URL` | `http://localhost:8788` | Renderer URL used by the preview worker |
+| `VELLUM_WIDGET_RENDERER_URL` | – | Native widget renderer sidecar (e.g. `http://widget-renderer:8790`); enables widget previews in reviews |
+| `VELLUM_WIDGET_RENDERER_CMD` | – | Local widget renderer command (e.g. `scripts/render-widget-previews.sh`) instead of the sidecar |
+| `VELLUM_REQUIRE_WIDGET_REVIEW` | `1` | `0` downgrades widget render failures to warnings instead of blocking publish |
 
 ## CLI
 
@@ -87,6 +90,24 @@ node packages/cli/dist/index.js history
 ```
 
 ## Container
+
+### Compose (recommended): service + native widget renderer
+
+```bash
+docker compose up -d --build          # or: podman-compose up -d --build
+open "http://localhost:8787/?token=client-dev-token"
+```
+
+`docker-compose.yml` runs two images:
+
+| Service | Purpose |
+| --- | --- |
+| `vellum` | Dashboard service (client API, agent API, SSE, web client, preview worker with chromium) |
+| `widget-renderer` | Native launcher-widget renderer (JDK 17 + Android SDK). The preview worker calls it over HTTP (`VELLUM_WIDGET_RENDERER_URL`), so widget designs get **real rendered screenshots** in their review and a failed render blocks publication |
+
+Set `VELLUM_REQUIRE_WIDGET_REVIEW=0` if a flaky renderer should only warn instead of blocking.
+
+### Single image
 
 One image serves every surface; the entrypoint selects the mode:
 

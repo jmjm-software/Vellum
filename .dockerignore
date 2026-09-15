@@ -2,13 +2,15 @@ node_modules
 **/node_modules
 **/dist
 .git
-.github
 logs
 .vellum-data
-android
 *.md
 !README.md
+# Android build outputs stay out of every image; the sources are needed by the
+# widget-renderer image (Containerfile.widget-renderer).
+android/.gradle
+android/**/build
+android/local.properties
+android/.idea
 scripts/stack-up.sh
 scripts/stack-down.sh
-scripts/e2e.mjs
-scripts/mcp-test.mjs

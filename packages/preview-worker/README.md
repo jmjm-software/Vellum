@@ -25,6 +25,9 @@ and the web app's built `preview.html` must be reachable at
 | `VELLUM_DATA_DIR` | `./.vellum-data` | Data dir; db at `<dir>/store.db`, screenshots at `<dir>/artifacts/reviews/<reviewId>/<profile>.png` |
 | `VELLUM_RENDERER_URL` | `http://localhost:8788` | Base URL serving `/preview.html` |
 | `VELLUM_CLIENT_TOKEN` | `client-dev-token` | Used only to read uploaded assets so they can be inlined into the preview spec (must match the server's client token) |
+| `VELLUM_WIDGET_RENDERER_URL` | – | Native widget renderer sidecar; renders the Glance widget to PNGs that are attached to the review (`target: widget`) |
+| `VELLUM_WIDGET_RENDERER_CMD` | – | Local alternative to the sidecar (`scripts/render-widget-previews.sh`) |
+| `VELLUM_REQUIRE_WIDGET_REVIEW` | `1` | `0` = widget render failures warn instead of failing the review (and thus blocking publish) |
 | `VELLUM_POLL_INTERVAL_MS` | `2000` | Queue poll interval |
 | `VELLUM_JOB_TIMEOUT_MS` | `240000` | Per-job overall timeout (~4 min); additionally each profile has a 60s budget |
 
@@ -37,6 +40,10 @@ and the web app's built `preview.html` must be reachable at
   `@vellum/core`); unknown names produce a warning diagnostic. Max 2
   concurrent pages, single reused chromium browser, fresh context/page per
   profile for isolation.
+- **Widget**: when the design contains a widget presentation, the widget is rendered natively
+  (sidecar HTTP or local command) at launcher sizes and attached to the same review. A missing
+  renderer produces an explicit `widget_preview_unavailable` warning; a failing renderer produces
+  `widget_render_failed` (error → review fails → publish blocked, unless disabled).
 - **Render**: injects the spec out-of-band (`page.addInitScript` → `window.__vellumSpec`)
   and navigates to `VELLUM_RENDERER_URL + '/preview.html'`. The spec is deliberately NOT
   passed in the query string: inlined assets blow past the server's HTTP header limit
