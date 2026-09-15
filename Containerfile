@@ -40,8 +40,11 @@ RUN npm run build
 # Stage 2: runtime — production deps + playwright chromium for the preview worker
 # ---------------------------------------------------------------------------
 FROM node:22-bookworm-slim AS runtime
+# Baked into /api/health so a stale image is immediately visible.
+ARG GIT_SHA=unknown
 
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+ENV VELLUM_GIT_SHA=$GIT_SHA \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     NODE_ENV=production \
     PORT=8787 \
     VELLUM_DATA_DIR=/data \

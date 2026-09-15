@@ -3,6 +3,7 @@ import process from "node:process";
 import {
   getState,
   getDataset,
+  getHealth,
   listRevisions,
   postEvents,
   postRollback,
@@ -112,6 +113,11 @@ async function run() {
         const pending = await fetchPendingCount(client, agentToken);
         for (const line of formatStatus(state, pending.count !== null ? [] : null)) {
           console.log(line);
+        }
+        const health = await getHealth(client);
+        if (health) {
+          const sha = health.gitSha && health.gitSha !== "unknown" ? ` @${health.gitSha.slice(0, 7)}` : "";
+          console.log(`Server build: version=${health.serverVersion ?? "?"}${sha} web=${health.web?.bundle ?? "?"}`);
         }
         break;
       }

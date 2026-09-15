@@ -7,6 +7,7 @@
  * - Serves packages/web/dist statically at / when present
  */
 import express, { type NextFunction, type Request, type Response } from "express";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,6 +41,35 @@ const ERROR_CODES = new Set<ErrorCode>([
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 8787);
+const webDist = resolve(here, "..", "..", "web", "dist");
+
+/**
+ * Build identification. A stale container is the most common cause of "the fix
+ * is not visible", so /api/health reports exactly which artifacts are being
+ * served: server package version, git sha (baked into the image) and a hash of
+ * the web client bundle the dashboard is actually rendered from.
+ */
+function computeBuildInfo(): { serverVersion: string; gitSha: string; bundle: string } {
+  let serverVersion = "0.0.0";
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(here, "..", "package.json"), "utf8")) as { version?: string };
+    serverVersion = pkg.version ?? "0.0.0";
+  } catch {
+    /* keep default */
+  }
+  let bundle = "none";
+  try {
+    const indexPath = join(webDist, "index.html");
+    if (existsSync(indexPath)) {
+      bundle = createHash("sha256").update(readFileSync(indexPath)).digest("hex").slice(0, 8);
+    }
+  } catch {
+    bundle = "error";
+  }
+  return { serverVersion, gitSha: process.env.VELLUM_GIT_SHA ?? "unknown", bundle };
+}
+
+const build = computeBuildInfo();
 const ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 
 const app = express();
@@ -96,6 +126,9 @@ app.get("/api/health", (_req, res) => {
     serverTime: Date.now(),
     rendererVersion: RENDERER_VERSION,
     catalogueVersion: CATALOGUE_VERSION,
+    serverVersion: build.serverVersion,
+    gitSha: build.gitSha,
+    web: { bundle: build.bundle },
   });
 });
 
@@ -293,7 +326,6 @@ app.post(
 // Static web client (packages/web/dist) when present
 // ---------------------------------------------------------------------------
 
-const webDist = resolve(here, "..", "..", "web", "dist");
 if (existsSync(webDist)) {
   app.use(express.static(webDist));
   // SPA fallback for non-API GETs (e.g. /preview.html deep links).
@@ -314,7 +346,10 @@ app.use((req, res) => {
 });
 
 const server = app.listen(PORT, () => {
-  console.log(`[vellum-server] listening on http://localhost:${PORT} (data: ${process.env.VELLUM_DATA_DIR ?? "./.vellum-data"})`);
+  console.log(
+    `[vellum-server] listening on http://localhost:${PORT} (data: ${process.env.VELLUM_DATA_DIR ?? "./.vellum-data"})` +
+      ` build: version=${build.serverVersion} sha=${build.gitSha.slice(0, 7)} web=${build.bundle}`
+  );
 });
 
 function shutdown(): void {

@@ -145,8 +145,28 @@ function useStream(
   }, [token]);
 }
 
+interface BuildInfo {
+  serverVersion?: string;
+  gitSha?: string;
+  web?: { bundle?: string };
+}
+
 export default function App() {
   const token = useMemo(() => getClientToken(), []);
+  // Which server/bundle is this page talking to (spot stale containers fast).
+  const [build, setBuild] = useState<BuildInfo | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/health')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => {
+        if (!cancelled && b) setBuild(b as BuildInfo);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [offline, setOffline] = useState(false);
   const [stale, setStale] = useState(false);
   const [state, setState] = useState<DashboardState | null>(null);
@@ -296,6 +316,12 @@ export default function App() {
       <div className="app-banner">
         <span className="app-title">
           Vellum {state.publication ? `· rev ${state.publication.revision}` : ''}
+          {build?.web?.bundle ? (
+            <span className="app-build" title={`server ${build.serverVersion ?? '?'} · git ${build.gitSha ?? '?'} · web bundle ${build.web.bundle}`}>
+              {' '}build {build.web.bundle}
+              {build.gitSha && build.gitSha !== 'unknown' ? ` @${build.gitSha.slice(0, 7)}` : ''}
+            </span>
+          ) : null}
         </span>
         <span className="app-status">
           {offline && <span className="app-badge app-badge-offline">offline</span>}

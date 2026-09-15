@@ -61,6 +61,20 @@ async function request<T>(config: ApiConfig, method: string, path: string, body?
   }
 }
 
+export async function getHealth(
+  config: ApiConfig
+): Promise<{ serverVersion?: string; gitSha?: string; web?: { bundle?: string } } | null> {
+  try {
+    return await request<{ serverVersion?: string; gitSha?: string; web?: { bundle?: string } }>(
+      config,
+      "GET",
+      "/api/health"
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function getState(config: ApiConfig): Promise<DashboardState> {
   return request<DashboardState>(config, "GET", "/api/state");
 }
