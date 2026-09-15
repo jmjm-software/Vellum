@@ -24,6 +24,7 @@ and the web app's built `preview.html` must be reachable at
 | --- | --- | --- |
 | `VELLUM_DATA_DIR` | `./.vellum-data` | Data dir; db at `<dir>/store.db`, screenshots at `<dir>/artifacts/reviews/<reviewId>/<profile>.png` |
 | `VELLUM_RENDERER_URL` | `http://localhost:8788` | Base URL serving `/preview.html` |
+| `VELLUM_CLIENT_TOKEN` | `client-dev-token` | Used only to read uploaded assets so they can be inlined into the preview spec (must match the server's client token) |
 | `VELLUM_POLL_INTERVAL_MS` | `2000` | Queue poll interval |
 | `VELLUM_JOB_TIMEOUT_MS` | `240000` | Per-job overall timeout (~4 min); additionally each profile has a 60s budget |
 
@@ -36,7 +37,14 @@ and the web app's built `preview.html` must be reachable at
   `@vellum/core`); unknown names produce a warning diagnostic. Max 2
   concurrent pages, single reused chromium browser, fresh context/page per
   profile for isolation.
-- **Render**: `goto VELLUM_RENDERER_URL + '/preview.html?spec=' + base64url(JSON({content, datasets, target, profile}))`,
+- **Render**: injects the spec out-of-band (`page.addInitScript` → `window.__vellumSpec`)
+  and navigates to `VELLUM_RENDERER_URL + '/preview.html'`. The spec is deliberately NOT
+  passed in the query string: inlined assets blow past the server's HTTP header limit
+  (Node default 16 KB) and the page load fails with 431 (every profile then times out).
+  Uploaded images are fetched and inlined as `data:` URLs (≤1 MB each, ≤4 MB total, else an
+  `asset_not_inlined` warning) so the reviewed screenshot contains the real image; the
+  request sandbox allows `data:`/`blob:` and the renderer origin, and aborts everything else.
+  Diagnostics also report `image_not_rendered` when an `<img>` failed to draw,
   then wait for `window.__vellumReady === true` (60s). Every request whose
   origin differs from `VELLUM_RENDERER_URL` is aborted via route interception —
   the preview is fully sandboxed and never hits real endpoints.

@@ -137,6 +137,19 @@ async function main() {
   });
   check("non-raster asset type rejected", badMime.status >= 400, badMime.status);
 
+  // Regression: a large asset (like a real photo/WebP) used to be inlined into
+  // the preview *query string*, exceeding the server's 16 KB HTTP header limit
+  // (HTTP 431) and timing out every preview profile with zero screenshots.
+  const bigPng = Buffer.concat([Buffer.from(ONE_PIXEL_PNG, "base64"), Buffer.alloc(48 * 1024, 0)]);
+  const bigUpload = await agent("POST", "/api/agent/assets", {
+    op: "upload",
+    filename: "large.png",
+    mimeType: "image/png",
+    dataBase64: bigPng.toString("base64")
+  });
+  check("large asset upload accepted", bigUpload.status === 200 && (bigUpload.json?.asset?.bytes ?? 0) > 40_000, bigUpload.json?.asset);
+  const designAssetId = bigUpload.json?.asset?.id ?? assetId;
+
   // --- draft edit -----------------------------------------------------------
   const edit1 = await agent("POST", "/api/agent/edit", {
     base: "blank",
@@ -163,7 +176,7 @@ async function main() {
                 {
                   id: "logo-image",
                   type: "image",
-                  props: { assetId, alt: "Uploaded logo", fit: "contain", action: { kind: "openUrl", href: "https://example.com/logo" } }
+                  props: { assetId: designAssetId, alt: "Uploaded logo", fit: "contain", action: { kind: "openUrl", href: "https://example.com/logo" } }
                 },
                 { id: "docs-button", type: "button", props: { label: "Open guide", variant: "secondary", action: { kind: "openUrl", href: "https://example.com/guide" } } }
               ]
@@ -179,7 +192,7 @@ async function main() {
             { kind: "text", text: "Shopping", emphasis: "title" },
             { kind: "list", dataset: "shopping", maxItems: 4, filter: "unchecked", showRemainingCount: true },
             { kind: "link", label: "Energy guide", href: "https://example.com/energy" },
-            { kind: "image", assetId, alt: "Uploaded logo" },
+            { kind: "image", assetId: designAssetId, alt: "Uploaded logo" },
             { kind: "action", label: "Open dashboard", action: { kind: "openDashboard" } }
           ],
           datasets: ["shopping"]
@@ -272,6 +285,16 @@ async function main() {
     check(
       "preview inlined the uploaded asset (no asset_unavailable diagnostic)",
       !(review.diagnostics ?? []).some((d) => d.code === "asset_unavailable"),
+      review.diagnostics
+    );
+    check(
+      "preview of a design with a large image completes (no preview_timeout)",
+      !(review.diagnostics ?? []).some((d) => d.code === "preview_timeout"),
+      review.diagnostics
+    );
+    check(
+      "inlined image actually rendered in the preview (no image_not_rendered)",
+      !(review.diagnostics ?? []).some((d) => d.code === "image_not_rendered"),
       review.diagnostics
     );
 

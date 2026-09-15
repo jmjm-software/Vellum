@@ -7,6 +7,12 @@ declare global {
   interface Window {
     __vellumActions: Array<{ action: ActionSpec; ctx: { componentId: string } }>;
     __vellumReady: boolean;
+    /**
+     * Spec injected by the preview worker before navigation (page.addInitScript).
+     * Preferred over the query string: inlined assets make the spec far larger
+     * than an HTTP header allows.
+     */
+    __vellumSpec?: RenderSpec;
   }
 }
 
@@ -31,6 +37,9 @@ function decodeBase64Url(s: string): string {
 }
 
 function parseSpec(): RenderSpec | null {
+  // Injected out-of-band by the preview worker (no URL length limits).
+  if (window.__vellumSpec) return window.__vellumSpec;
+  // Fallbacks for manual debugging: ?spec=<base64url json> or window.name.
   try {
     const params = new URLSearchParams(window.location.search);
     const specParam = params.get('spec');
@@ -60,7 +69,7 @@ function PreviewApp() {
   if (!spec || !spec.content) {
     return (
       <div style={{ padding: 24, color: '#8a919c', fontFamily: 'system-ui, sans-serif' }}>
-        Missing or invalid preview spec (?spec=&lt;base64url json&gt; or window.name).
+        Missing or invalid preview spec (window.__vellumSpec, ?spec=&lt;base64url json&gt; or window.name).
       </div>
     );
   }

@@ -43,6 +43,14 @@ function encodeSpec(spec: RenderSpec): string {
   return Buffer.from(JSON.stringify(spec), "utf8").toString("base64url");
 }
 
+/**
+ * Inlining bounds. Assets are embedded as data: URLs so reviewed screenshots
+ * contain the real image, but the spec must stay a sane size for the browser
+ * and for the worker's own memory.
+ */
+export const MAX_INLINE_ASSET_BYTES = 1_000_000;
+export const MAX_INLINE_TOTAL_BYTES = 4_000_000;
+
 /** Read width/height out of a PNG buffer's IHDR chunk. */
 function pngSize(buf: Buffer): { width: number; height: number } {
   return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
@@ -109,6 +117,7 @@ export async function inlineAssets(
   const assets: Record<string, string> = {};
   const diagnostics: Diagnostic[] = [];
   const origin = new URL(serverUrl).origin;
+  let inlinedBytes = 0;
   for (const assetId of assetIds) {
     try {
       const res = await fetch(`${origin}/api/assets/${encodeURIComponent(assetId)}`, {
@@ -124,6 +133,15 @@ export async function inlineAssets(
       }
       const mime = res.headers.get("content-type") ?? "image/png";
       const bytes = Buffer.from(await res.arrayBuffer());
+      if (bytes.length > MAX_INLINE_ASSET_BYTES || inlinedBytes + bytes.length > MAX_INLINE_TOTAL_BYTES) {
+        diagnostics.push({
+          severity: "warning",
+          code: "asset_not_inlined",
+          message: `image asset "${assetId}" (${bytes.length} bytes) is too large to inline for preview — the screenshot renders a placeholder for it`
+        });
+        continue;
+      }
+      inlinedBytes += bytes.length;
       assets[assetId] = `data:${mime};base64,${bytes.toString("base64")}`;
     } catch (err) {
       diagnostics.push({
@@ -244,9 +262,16 @@ export async function runProfile(
   // origin itself. The preview page must never reach real endpoints.
   const rendererOrigin = new URL(rendererUrl).origin;
   await page.route("**/*", (route) => {
+    const raw = route.request().url();
+    // Inlined assets arrive as data: URLs (origin "null") — self-contained, no
+    // network, and must not be aborted by the sandbox below.
+    if (raw.startsWith("data:") || raw.startsWith("blob:")) {
+      void route.continue().catch(() => undefined);
+      return;
+    }
     let origin: string;
     try {
-      origin = new URL(route.request().url()).origin;
+      origin = new URL(raw).origin;
     } catch {
       void route.abort().catch(() => undefined);
       return;
@@ -277,17 +302,39 @@ export async function runProfile(
   });
 
   try {
-    const url = `${rendererUrl.replace(/\/$/, "")}/preview.html?spec=${encodeSpec(spec)}`;
-    await withTimeout(
-      (async () => {
-        await page.goto(url, { waitUntil: "load", timeout: READY_TIMEOUT_MS });
-        await page.waitForFunction("window.__vellumReady === true", undefined, {
-          timeout: READY_TIMEOUT_MS
-        });
-      })(),
-      READY_TIMEOUT_MS + 5000,
-      `profile ${profile.name}: page load`
-    );
+    // The spec is injected before navigation instead of passed in the query
+    // string: inlined image assets make specs far larger than the server's
+    // HTTP header limit (Node default 16 KB), which fails the page load with
+    // 431 and times every profile out.
+    const specJson = JSON.stringify(spec)
+      .replace(/\u2028/g, "\\u2028")
+      .replace(/\u2029/g, "\\u2029");
+    await page.addInitScript({ content: `window.__vellumSpec = ${specJson};` });
+
+    const url = `${rendererUrl.replace(/\/$/, "")}/preview.html`;
+    let ready = true;
+    try {
+      await withTimeout(
+        (async () => {
+          await page.goto(url, { waitUntil: "load", timeout: READY_TIMEOUT_MS });
+          await page.waitForFunction("window.__vellumReady === true", undefined, {
+            timeout: READY_TIMEOUT_MS
+          });
+        })(),
+        READY_TIMEOUT_MS + 5000,
+        `profile ${profile.name}: page load`
+      );
+    } catch (err) {
+      // Never fail silently with zero artifacts: record why, and still capture
+      // whatever the page shows so the agent has evidence to look at.
+      ready = false;
+      diagnostics.push({
+        severity: "error",
+        code: "preview_timeout",
+        message: `page did not become ready: ${err instanceof Error ? err.message : String(err)}`.slice(0, 1000),
+        target: profile.name
+      });
+    }
 
     // Screenshot (fullPage png) -> <artifactDir>/reviews/<reviewId>/<profile>.png
     const dir = join(artifactDir, "reviews", reviewId);
@@ -302,6 +349,32 @@ export async function runProfile(
       width: size.width,
       height: size.height
     };
+
+    // Overflow and interaction checks need a mounted page.
+    if (!ready) {
+      return { profile: profile.name, target: profile.target, screenshot, diagnostics };
+    }
+
+    // Evidence check: every image actually rendered (an inlined asset that the
+    // sandbox aborted, or a missing asset, shows as a broken image otherwise).
+    const brokenImages = (await page.evaluate(`(() => {
+      const out = [];
+      for (const img of Array.from(document.images)) {
+        if (!img.complete || img.naturalWidth === 0) {
+          out.push(img.getAttribute("data-component-id") || img.getAttribute("alt") || "image");
+        }
+      }
+      return out;
+    })()`)) as string[];
+    for (const componentId of brokenImages) {
+      diagnostics.push({
+        severity: "warning",
+        code: "image_not_rendered",
+        message: "image did not render in the preview (broken or aborted source)",
+        componentId,
+        target: profile.name
+      });
+    }
 
     // Overflow check across every rendered component root.
     const overflowing = (await page.evaluate(`(() => {
