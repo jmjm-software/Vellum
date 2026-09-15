@@ -33,6 +33,16 @@ cd android
 ./gradlew lintDebug            # static analysis
 ```
 
+## Versioning policy (important for installs)
+
+**Every change under `android/` bumps `versionCode`** (and `versionName` for humans). Android only
+installs an APK over an existing app when `versionCode` increases — with an unchanged code the
+install fails and the old app has to be uninstalled first. Current: `versionCode 5` / `0.1.4`.
+
+Server/web-only changes need **no** APK update: the dashboard UI is the web client served by the
+service (the WebView loads it on every launch), so pulling the new container is enough. Only
+native shell/widget changes require a new APK.
+
 ## CI (`android-apk` workflow)
 
 `.github/workflows/android.yml` builds the APK on GitHub Actions whenever `android/**`

@@ -42,7 +42,21 @@ function useApi(token: string | null) {
     return res.json() as Promise<SubmitActionResult>;
   }, [headers]);
 
-  return { getState, postAction };
+  /**
+   * Uploaded assets are access-controlled, and an <img> tag cannot send an
+   * Authorization header — so bytes are fetched with the client token and
+   * handed to the renderer as an object URL.
+   */
+  const fetchAsset = useCallback(
+    async (assetId: string): Promise<string> => {
+      const res = await fetch(`/api/assets/${encodeURIComponent(assetId)}`, { headers });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return URL.createObjectURL(await res.blob());
+    },
+    [headers]
+  );
+
+  return { getState, postAction, fetchAsset };
 }
 
 /**
@@ -139,7 +153,7 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
-  const { getState, postAction } = useApi(token);
+  const { getState, postAction, fetchAsset } = useApi(token);
 
   const [target, setTarget] = useState<'phone' | 'desktop'>(() =>
     window.innerWidth < 768 ? 'phone' : 'desktop'
@@ -301,6 +315,7 @@ export default function App() {
             datasets={state.datasets}
             target={target}
             onAction={handleAction}
+            fetchAsset={fetchAsset}
           />
         ) : (
           <div className="app-message">No publication yet — the agent hasn't published a design.</div>

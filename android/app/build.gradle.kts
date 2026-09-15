@@ -13,8 +13,12 @@ android {
         applicationId = "dev.vellum.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.1.3"
+        // Bump versionCode for EVERY app change: Android only installs an APK
+        // over an existing app when the versionCode increases (otherwise the
+        // install fails and the old app must be uninstalled first).
+        // versionName is the human-readable counterpart.
+        versionCode = 5
+        versionName = "0.1.4"
     }
 
     buildTypes {

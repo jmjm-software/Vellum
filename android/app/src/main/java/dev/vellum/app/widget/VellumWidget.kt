@@ -24,6 +24,7 @@ import androidx.glance.appwidget.action.actionStartActivity as actionStartActivi
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.layout.Alignment
+import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
@@ -256,8 +257,27 @@ private fun WidgetImage(component: WidgetComponentDto) {
     val context = LocalContext.current
     val assetId = component.assetId ?: return
     val file = File(ShellStore.widgetAssetDir(context), assetId)
-    if (!file.exists()) return
-    val bitmap = runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull() ?: return
+    val bitmap = if (file.exists()) runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull() else null
+    if (bitmap == null) {
+        // Visible placeholder rather than silently rendering nothing: the bytes
+        // are prefetched by WidgetUpdateWorker, so a missing file means the
+        // last sync could not fetch it (offline, revoked token, ...).
+        Box(
+            modifier = GlanceModifier
+                .fillMaxWidth()
+                .height(40.dp)
+                .background(ColorProvider(Color(0xFF232A31)))
+                .padding(8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = component.alt ?: "image",
+                style = TextStyle(color = ColorProvider(Color(0xFF9AA4AF))),
+                maxLines = 1
+            )
+        }
+        return
+    }
     Image(
         provider = ImageProvider(bitmap),
         contentDescription = component.alt ?: "",

@@ -148,7 +148,9 @@ rejection) → dataset update without redesign → mirrored-dataset event flow �
 without touching data.
 
 ```bash
-npm run build && node scripts/e2e.mjs
+npm run build && node scripts/e2e.mjs          # API/publish/preview acceptance (44 checks)
+node scripts/check-live-image.mjs              # real-browser check: uploaded images render in the live client
+node scripts/publish-widget.mjs shopping       # guarded flow: add an agent-designed widget spec
 ```
 
 ## Security notes

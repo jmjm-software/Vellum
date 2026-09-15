@@ -1,4 +1,4 @@
-import React, { useContext, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import type {
   ComponentNode,
   Dataset,
@@ -16,6 +16,12 @@ interface RendererContextValue {
   preview: boolean;
   /** assetId -> URL (in previews: inlined data: URLs so screenshots show the real image). */
   assets: Map<string, string>;
+  /**
+   * Fetches uploaded asset bytes with the client's credentials and returns a
+   * usable URL (object URL). Required in the live clients: an <img> tag cannot
+   * send an Authorization header, and /api/assets is access-controlled.
+   */
+  fetchAsset?: (assetId: string) => Promise<string>;
 }
 
 const RendererContext = React.createContext<RendererContextValue>({
@@ -699,12 +705,40 @@ function ImageComponent({ node }: { node: ComponentNode }) {
     fit?: 'contain' | 'cover';
     action?: ActionSpec;
   };
-  const { preview, assets, onAction } = useRenderer();
+  const { preview, assets, onAction, fetchAsset } = useRenderer();
   const fit = props.fit ?? 'contain';
-  const resolved = assets.get(props.assetId);
-  // In previews only inlined assets render (no network); otherwise the
-  // access-controlled endpoint serves the uploaded bytes.
-  const src = resolved ?? (preview ? undefined : `/api/assets/${props.assetId}`);
+  const inlined = assets.get(props.assetId);
+  const [fetched, setFetched] = useState<string | undefined>(undefined);
+  const [failed, setFailed] = useState(false);
+
+  // Live clients: bytes are fetched with the client token (an <img> request
+  // cannot carry an Authorization header, and the endpoint requires one) and
+  // exposed as an object URL, revoked when the component unmounts or changes.
+  useEffect(() => {
+    if (inlined || !fetchAsset) return;
+    let cancelled = false;
+    let objectUrl: string | undefined;
+    setFailed(false);
+    fetchAsset(props.assetId)
+      .then((url) => {
+        if (cancelled) {
+          if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+          return;
+        }
+        objectUrl = url;
+        setFetched(url);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl?.startsWith('blob:')) URL.revokeObjectURL(objectUrl);
+    };
+  }, [props.assetId, inlined, fetchAsset]);
+
+  const src =
+    inlined ?? fetched ?? (!preview && !fetchAsset && !failed ? `/api/assets/${props.assetId}` : undefined);
 
   const body = src ? (
     <img
@@ -798,6 +832,8 @@ export interface DashboardRendererProps {
   preview?: boolean;
   /** assetId -> URL (previews pass inlined data: URLs so screenshots show images). */
   assets?: Record<string, string>;
+  /** Live clients pass a token-authenticated asset loader (see RendererContextValue). */
+  fetchAsset?: (assetId: string) => Promise<string>;
 }
 
 export function DashboardRenderer({
@@ -808,6 +844,7 @@ export function DashboardRenderer({
   width,
   preview = false,
   assets,
+  fetchAsset,
 }: DashboardRendererProps) {
   const overrides = useMemo(() => {
     const map = new Map<
@@ -831,7 +868,7 @@ export function DashboardRenderer({
 
   return (
     <RendererContext.Provider
-      value={{ datasets: dsMap, target, onAction, overrides, preview, assets: assetMap }}
+      value={{ datasets: dsMap, target, onAction, overrides, preview, assets: assetMap, fetchAsset }}
     >
       <div
         className="vellum-root"
